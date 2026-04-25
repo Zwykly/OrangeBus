@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_system.h"
@@ -68,7 +69,6 @@ static esp_bd_addr_t s_peer_bda = {0};
 static i2s_chan_handle_t s_tx_handle = NULL;
 static SemaphoreHandle_t s_i2s_mutex = NULL;
 
-static SemaphoreHandle_t s_avrcp_cmd_sem = NULL;
 static TickType_t s_last_cmd_tick = 0;
 #define AVRCP_CMD_MIN_INTERVAL_MS 100
 #define AVRCP_PRESSED_RELEASED_GAP_MS 50
@@ -76,6 +76,13 @@ static TickType_t s_last_cmd_tick = 0;
 #define AVRCP_PT_CMD_VOICE_RECOG 0x30
 
 static bool s_vra_active = false;
+
+static QueueHandle_t s_avrcp_cmd_queue = NULL;
+#define AVRCP_CMD_QUEUE_LEN 8
+
+typedef struct {
+    uint8_t cmd;
+} avrcp_cmd_t;
 
 static bool i2s_init(uint32_t rate)
 {
@@ -234,34 +241,46 @@ static void meta_timer_cb(TimerHandle_t timer)
     }
 }
 
-static esp_err_t send_avrcp_pt_cmd(uint8_t cmd)
+static void avrcp_cmd_worker(void *arg)
 {
-    if (s_avrcp_cmd_sem) xSemaphoreTake(s_avrcp_cmd_sem, portMAX_DELAY);
+    avrcp_cmd_t item;
+    while (1) {
+        if (xQueueReceive(s_avrcp_cmd_queue, &item, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
 
-    TickType_t now = xTaskGetTickCount();
-    TickType_t min_interval = pdMS_TO_TICKS(AVRCP_CMD_MIN_INTERVAL_MS);
-    if ((now - s_last_cmd_tick) < min_interval) {
-        vTaskDelay(min_interval - (now - s_last_cmd_tick));
-    }
+        TickType_t now = xTaskGetTickCount();
+        TickType_t min_interval = pdMS_TO_TICKS(AVRCP_CMD_MIN_INTERVAL_MS);
+        if ((now - s_last_cmd_tick) < min_interval) {
+            vTaskDelay(min_interval - (now - s_last_cmd_tick));
+        }
 
-    esp_err_t ret = esp_avrc_ct_send_passthrough_cmd(s_txn_count++, cmd, ESP_AVRC_PT_CMD_STATE_PRESSED);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "AVRCP PRESSED cmd 0x%02X failed: %s", cmd, esp_err_to_name(ret));
+        esp_err_t ret = esp_avrc_ct_send_passthrough_cmd(s_txn_count++, item.cmd, ESP_AVRC_PT_CMD_STATE_PRESSED);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "AVRCP PRESSED cmd 0x%02X failed: %s", item.cmd, esp_err_to_name(ret));
+            s_last_cmd_tick = xTaskGetTickCount();
+            continue;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(AVRCP_PRESSED_RELEASED_GAP_MS));
+
+        ret = esp_avrc_ct_send_passthrough_cmd(s_txn_count++, item.cmd, ESP_AVRC_PT_CMD_STATE_RELEASED);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "AVRCP RELEASED cmd 0x%02X failed: %s", item.cmd, esp_err_to_name(ret));
+        }
+
         s_last_cmd_tick = xTaskGetTickCount();
-        if (s_avrcp_cmd_sem) xSemaphoreGive(s_avrcp_cmd_sem);
-        return ret;
     }
+}
 
-    vTaskDelay(pdMS_TO_TICKS(AVRCP_PRESSED_RELEASED_GAP_MS));
-
-    ret = esp_avrc_ct_send_passthrough_cmd(s_txn_count++, cmd, ESP_AVRC_PT_CMD_STATE_RELEASED);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "AVRCP RELEASED cmd 0x%02X failed: %s", cmd, esp_err_to_name(ret));
+static void send_avrcp_pt_cmd(uint8_t cmd)
+{
+    avrcp_cmd_t item = { .cmd = cmd };
+    if (s_avrcp_cmd_queue) {
+        if (xQueueSend(s_avrcp_cmd_queue, &item, pdMS_TO_TICKS(200)) != pdTRUE) {
+            ESP_LOGW(TAG, "AVRCP cmd queue full, dropping cmd 0x%02X", cmd);
+        }
     }
-
-    s_last_cmd_tick = xTaskGetTickCount();
-    if (s_avrcp_cmd_sem) xSemaphoreGive(s_avrcp_cmd_sem);
-    return ret;
 }
 
 static void on_avrcp_meta(uint8_t attr_id, const uint8_t *val, uint8_t len)
@@ -749,7 +768,8 @@ void app_main(void)
     }
 
     s_meta_timer = xTimerCreate("meta_tmr", pdMS_TO_TICKS(2000), pdFALSE, NULL, meta_timer_cb);
-    s_avrcp_cmd_sem = xSemaphoreCreateMutex();
+    s_avrcp_cmd_queue = xQueueCreate(AVRCP_CMD_QUEUE_LEN, sizeof(avrcp_cmd_t));
+    xTaskCreate(avrcp_cmd_worker, "avrcp_cmd", 3072, NULL, 5, NULL);
 
     xTaskCreate(serial_cmd_task, "serial_cmd", 3072, NULL, 5, NULL);
 
