@@ -502,6 +502,10 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
             ESP_LOGI(TAG, "Call active");
         }
         break;
+    case ESP_HF_CLIENT_BVRA_EVT:
+        s_vra_active = (param->bvra.value == ESP_HF_VR_STATE_ENABLED);
+        ESP_LOGI(TAG, "Voice recognition %s", s_vra_active ? "ENABLED" : "DISABLED");
+        break;
     default:
         break;
     }
