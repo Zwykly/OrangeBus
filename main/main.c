@@ -73,6 +73,10 @@ static TickType_t s_last_cmd_tick = 0;
 #define AVRCP_CMD_MIN_INTERVAL_MS 100
 #define AVRCP_PRESSED_RELEASED_GAP_MS 50
 
+#define AVRCP_PT_CMD_VOICE_RECOG 0x30
+
+static bool s_vra_active = false;
+
 static bool i2s_init(uint32_t rate)
 {
     if (s_i2s_mutex) xSemaphoreTake(s_i2s_mutex, portMAX_DELAY);
@@ -596,6 +600,23 @@ static void serial_cmd_task(void *arg)
             if (s_hfp_state >= BT_HFP_CONNECTED) {
                 esp_hf_client_dial(NULL);
                 ESP_LOGI(TAG, "CMD: Redial");
+            }
+            break;
+        case 'v':
+            if (s_a2dp_state >= BT_A2DP_CONNECTED) {
+                send_avrcp_pt_cmd(AVRCP_PT_CMD_VOICE_RECOG);
+                ESP_LOGI(TAG, "CMD: Voice Assistant (AVRCP)");
+            }
+            break;
+        case 'V':
+            if (s_hfp_state >= BT_HFP_CONNECTED) {
+                if (s_vra_active) {
+                    esp_hf_client_stop_voice_recognition();
+                    ESP_LOGI(TAG, "CMD: Voice Recognition OFF (HFP)");
+                } else {
+                    esp_hf_client_start_voice_recognition();
+                    ESP_LOGI(TAG, "CMD: Voice Recognition ON (HFP)");
+                }
             }
             break;
         case 'h':
