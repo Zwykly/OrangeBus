@@ -642,6 +642,7 @@ static void serial_cmd_task(void *arg)
                 s_meta_artist[0] ? s_meta_artist : "-",
                 s_meta_album[0] ? s_meta_album : "-");
             if (s_caller_id[0]) ESP_LOGI(TAG, " Caller: %s", s_caller_id);
+            if (s_vra_active) ESP_LOGI(TAG, " Voice: ACTIVE");
             break;
         default:
             break;
@@ -656,7 +657,8 @@ void app_main(void)
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "Pair phone with 'BMW-BlueBus'");
     ESP_LOGI(TAG, "Commands: +/- vol, m mute, p play, s pause");
-    ESP_LOGI(TAG, " n next, b prev, a answer, r reject, d redial, h status");
+    ESP_LOGI(TAG, " n next, b prev, a answer, r reject, d redial");
+    ESP_LOGI(TAG, " v voice (AVRCP), V voice (HFP), h status");
 
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << BT_LED) | (1ULL << TEL_MUTE),
