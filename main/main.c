@@ -57,7 +57,16 @@ static char s_meta_title[81] = "";
 static char s_meta_artist[81] = "";
 static char s_meta_album[81] = "";
 static uint8_t s_meta_field_count = 0;
+#define AVRCP_TL_MASK 0x0F
+
 static uint32_t s_txn_count = 0;
+
+static uint8_t next_txn_label(void)
+{
+    uint8_t tl = (uint8_t)(s_txn_count & AVRCP_TL_MASK);
+    s_txn_count++;
+    return tl;
+}
 static char s_caller_id[33] = "";
 static bool s_sco_open = false;
 static bool s_a2dp_was_playing = false;
@@ -228,9 +237,9 @@ static void request_metadata(void)
     s_meta_artist[0] = '\0';
     s_meta_album[0] = '\0';
     s_meta_requesting = true;
-    esp_avrc_ct_send_metadata_cmd(s_txn_count++, ESP_AVRC_MD_ATTR_TITLE);
-    esp_avrc_ct_send_metadata_cmd(s_txn_count++, ESP_AVRC_MD_ATTR_ARTIST);
-    esp_avrc_ct_send_metadata_cmd(s_txn_count++, ESP_AVRC_MD_ATTR_ALBUM);
+    esp_avrc_ct_send_metadata_cmd(next_txn_label(), ESP_AVRC_MD_ATTR_TITLE);
+    esp_avrc_ct_send_metadata_cmd(next_txn_label(), ESP_AVRC_MD_ATTR_ARTIST);
+    esp_avrc_ct_send_metadata_cmd(next_txn_label(), ESP_AVRC_MD_ATTR_ALBUM);
 }
 
 static void meta_timer_cb(TimerHandle_t timer)
@@ -255,7 +264,7 @@ static void avrcp_cmd_worker(void *arg)
             vTaskDelay(min_interval - (now - s_last_cmd_tick));
         }
 
-        esp_err_t ret = esp_avrc_ct_send_passthrough_cmd(s_txn_count++, item.cmd, ESP_AVRC_PT_CMD_STATE_PRESSED);
+        esp_err_t ret = esp_avrc_ct_send_passthrough_cmd(next_txn_label(), item.cmd, ESP_AVRC_PT_CMD_STATE_PRESSED);
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "AVRCP PRESSED cmd 0x%02X failed: %s", item.cmd, esp_err_to_name(ret));
             s_last_cmd_tick = xTaskGetTickCount();
@@ -264,7 +273,7 @@ static void avrcp_cmd_worker(void *arg)
 
         vTaskDelay(pdMS_TO_TICKS(AVRCP_PRESSED_RELEASED_GAP_MS));
 
-        ret = esp_avrc_ct_send_passthrough_cmd(s_txn_count++, item.cmd, ESP_AVRC_PT_CMD_STATE_RELEASED);
+        ret = esp_avrc_ct_send_passthrough_cmd(next_txn_label(), item.cmd, ESP_AVRC_PT_CMD_STATE_RELEASED);
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "AVRCP RELEASED cmd 0x%02X failed: %s", item.cmd, esp_err_to_name(ret));
         }
@@ -365,7 +374,7 @@ static void avrcp_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *pa
         break;
     case ESP_AVRC_CT_REMOTE_FEATURES_EVT:
         if (param->rmt_feats.feat_mask & ESP_AVRC_FEAT_META_DATA) {
-            esp_avrc_ct_send_get_rn_capabilities_cmd(s_txn_count++);
+            esp_avrc_ct_send_get_rn_capabilities_cmd(next_txn_label());
             request_metadata();
         }
         ESP_LOGI(TAG, "AVRCP Remote features received");
@@ -373,10 +382,10 @@ static void avrcp_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *pa
     case ESP_AVRC_CT_GET_RN_CAPABILITIES_RSP_EVT: {
         esp_avrc_rn_evt_cap_mask_t evt_mask = param->get_rn_caps_rsp.evt_set;
         if (esp_avrc_rn_evt_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_TEST, &evt_mask, ESP_AVRC_RN_TRACK_CHANGE)) {
-            esp_avrc_ct_send_register_notification_cmd(s_txn_count++, ESP_AVRC_RN_TRACK_CHANGE, 0);
+            esp_avrc_ct_send_register_notification_cmd(next_txn_label(), ESP_AVRC_RN_TRACK_CHANGE, 0);
         }
         if (esp_avrc_rn_evt_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_TEST, &evt_mask, ESP_AVRC_RN_PLAY_STATUS_CHANGE)) {
-            esp_avrc_ct_send_register_notification_cmd(s_txn_count++, ESP_AVRC_RN_PLAY_STATUS_CHANGE, 0);
+            esp_avrc_ct_send_register_notification_cmd(next_txn_label(), ESP_AVRC_RN_PLAY_STATUS_CHANGE, 0);
         }
         break;
     }
@@ -390,17 +399,17 @@ static void avrcp_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *pa
     case ESP_AVRC_CT_CHANGE_NOTIFY_EVT:
         if (param->change_ntf.event_id == ESP_AVRC_RN_TRACK_CHANGE) {
             request_metadata();
-            esp_avrc_ct_send_register_notification_cmd(s_txn_count++, ESP_AVRC_RN_TRACK_CHANGE, 0);
-    } else if (param->change_ntf.event_id == ESP_AVRC_RN_PLAY_STATUS_CHANGE) {
-        esp_avrc_playback_stat_t play_status = param->change_ntf.event_parameter.playback;
-        if (play_status == ESP_AVRC_PLAYBACK_PLAYING) {
-            s_a2dp_state = BT_A2DP_PLAYING;
-        } else if (play_status == ESP_AVRC_PLAYBACK_PAUSED) {
-            s_a2dp_state = BT_A2DP_PAUSED;
+            esp_avrc_ct_send_register_notification_cmd(next_txn_label(), ESP_AVRC_RN_TRACK_CHANGE, 0);
+        } else if (param->change_ntf.event_id == ESP_AVRC_RN_PLAY_STATUS_CHANGE) {
+            esp_avrc_playback_stat_t play_status = param->change_ntf.event_parameter.playback;
+            if (play_status == ESP_AVRC_PLAYBACK_PLAYING) {
+                s_a2dp_state = BT_A2DP_PLAYING;
+            } else if (play_status == ESP_AVRC_PLAYBACK_PAUSED) {
+                s_a2dp_state = BT_A2DP_PAUSED;
+            }
+            ESP_LOGI(TAG, "Play status: %d", play_status);
+            esp_avrc_ct_send_register_notification_cmd(next_txn_label(), ESP_AVRC_RN_PLAY_STATUS_CHANGE, 0);
         }
-        ESP_LOGI(TAG, "Play status: %d", play_status);
-        esp_avrc_ct_send_register_notification_cmd(s_txn_count++, ESP_AVRC_RN_PLAY_STATUS_CHANGE, 0);
-    }
         break;
     default:
         break;
