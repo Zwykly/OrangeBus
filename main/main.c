@@ -68,6 +68,11 @@ static esp_bd_addr_t s_peer_bda = {0};
 static i2s_chan_handle_t s_tx_handle = NULL;
 static SemaphoreHandle_t s_i2s_mutex = NULL;
 
+static SemaphoreHandle_t s_avrcp_cmd_sem = NULL;
+static TickType_t s_last_cmd_tick = 0;
+#define AVRCP_CMD_MIN_INTERVAL_MS 100
+#define AVRCP_PRESSED_RELEASED_GAP_MS 50
+
 static bool i2s_init(uint32_t rate)
 {
     if (s_i2s_mutex) xSemaphoreTake(s_i2s_mutex, portMAX_DELAY);
@@ -223,6 +228,36 @@ static void meta_timer_cb(TimerHandle_t timer)
         notify_metadata();
         s_meta_requesting = false;
     }
+}
+
+static esp_err_t send_avrcp_pt_cmd(uint8_t cmd)
+{
+    if (s_avrcp_cmd_sem) xSemaphoreTake(s_avrcp_cmd_sem, portMAX_DELAY);
+
+    TickType_t now = xTaskGetTickCount();
+    TickType_t min_interval = pdMS_TO_TICKS(AVRCP_CMD_MIN_INTERVAL_MS);
+    if ((now - s_last_cmd_tick) < min_interval) {
+        vTaskDelay(min_interval - (now - s_last_cmd_tick));
+    }
+
+    esp_err_t ret = esp_avrc_ct_send_passthrough_cmd(s_txn_count++, cmd, ESP_AVRC_PT_CMD_STATE_PRESSED);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "AVRCP PRESSED cmd 0x%02X failed: %s", cmd, esp_err_to_name(ret));
+        s_last_cmd_tick = xTaskGetTickCount();
+        if (s_avrcp_cmd_sem) xSemaphoreGive(s_avrcp_cmd_sem);
+        return ret;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(AVRCP_PRESSED_RELEASED_GAP_MS));
+
+    ret = esp_avrc_ct_send_passthrough_cmd(s_txn_count++, cmd, ESP_AVRC_PT_CMD_STATE_RELEASED);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "AVRCP RELEASED cmd 0x%02X failed: %s", cmd, esp_err_to_name(ret));
+    }
+
+    s_last_cmd_tick = xTaskGetTickCount();
+    if (s_avrcp_cmd_sem) xSemaphoreGive(s_avrcp_cmd_sem);
+    return ret;
 }
 
 static void on_avrcp_meta(uint8_t attr_id, const uint8_t *val, uint8_t len)
@@ -403,8 +438,7 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
             esp_hf_client_connect_audio(s_peer_bda);
             if (s_a2dp_state == BT_A2DP_PLAYING) {
                 s_a2dp_was_playing = true;
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PAUSE, ESP_AVRC_PT_CMD_STATE_PRESSED);
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PAUSE, ESP_AVRC_PT_CMD_STATE_RELEASED);
+                send_avrcp_pt_cmd(ESP_AVRC_PT_CMD_PAUSE);
             } else {
                 s_a2dp_was_playing = false;
             }
@@ -428,10 +462,9 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
             s_hfp_state = BT_HFP_OUTGOING;
             esp_hf_client_connect_audio(s_peer_bda);
             if (s_a2dp_state == BT_A2DP_PLAYING) {
-                s_a2dp_was_playing = true;
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PAUSE, ESP_AVRC_PT_CMD_STATE_PRESSED);
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PAUSE, ESP_AVRC_PT_CMD_STATE_RELEASED);
-            }
+                    s_a2dp_was_playing = true;
+                    send_avrcp_pt_cmd(ESP_AVRC_PT_CMD_PAUSE);
+                }
         } else if (cs == ESP_HF_CALL_SETUP_STATUS_IDLE) {
             if (s_hfp_state == BT_HFP_INCOMING || s_hfp_state == BT_HFP_OUTGOING) {
                 s_hfp_state = BT_HFP_CONNECTED;
@@ -449,10 +482,9 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
             s_hfp_state = BT_HFP_CONNECTED;
             switch_to_a2dp();
         }
-        if (s_a2dp_was_playing && s_a2dp_state >= BT_A2DP_CONNECTED) {
+            if (s_a2dp_was_playing && s_a2dp_state >= BT_A2DP_CONNECTED) {
                 switch_to_a2dp();
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PLAY, ESP_AVRC_PT_CMD_STATE_PRESSED);
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PLAY, ESP_AVRC_PT_CMD_STATE_RELEASED);
+                send_avrcp_pt_cmd(ESP_AVRC_PT_CMD_PLAY);
                 s_a2dp_was_playing = false;
             }
             ESP_LOGI(TAG, "Call ended");
@@ -527,26 +559,22 @@ static void serial_cmd_task(void *arg)
             break;
         case 'p':
             if (s_a2dp_state >= BT_A2DP_CONNECTED) {
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PLAY, ESP_AVRC_PT_CMD_STATE_PRESSED);
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PLAY, ESP_AVRC_PT_CMD_STATE_RELEASED);
+                send_avrcp_pt_cmd(ESP_AVRC_PT_CMD_PLAY);
                 ESP_LOGI(TAG, "CMD: Play");
             }
             break;
         case 's':
             if (s_a2dp_state == BT_A2DP_PLAYING) {
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PAUSE, ESP_AVRC_PT_CMD_STATE_PRESSED);
-                esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_PAUSE, ESP_AVRC_PT_CMD_STATE_RELEASED);
+                send_avrcp_pt_cmd(ESP_AVRC_PT_CMD_PAUSE);
                 ESP_LOGI(TAG, "CMD: Pause");
             }
             break;
         case 'n':
-            esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_FORWARD, ESP_AVRC_PT_CMD_STATE_PRESSED);
-            esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_FORWARD, ESP_AVRC_PT_CMD_STATE_RELEASED);
+            send_avrcp_pt_cmd(ESP_AVRC_PT_CMD_FORWARD);
             ESP_LOGI(TAG, "CMD: Next track");
             break;
         case 'b':
-            esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_BACKWARD, ESP_AVRC_PT_CMD_STATE_PRESSED);
-            esp_avrc_ct_send_passthrough_cmd(s_txn_count++, ESP_AVRC_PT_CMD_BACKWARD, ESP_AVRC_PT_CMD_STATE_RELEASED);
+            send_avrcp_pt_cmd(ESP_AVRC_PT_CMD_BACKWARD);
             ESP_LOGI(TAG, "CMD: Previous track");
             break;
         case 'a':
@@ -694,6 +722,7 @@ void app_main(void)
     }
 
     s_meta_timer = xTimerCreate("meta_tmr", pdMS_TO_TICKS(2000), pdFALSE, NULL, meta_timer_cb);
+    s_avrcp_cmd_sem = xSemaphoreCreateMutex();
 
     xTaskCreate(serial_cmd_task, "serial_cmd", 3072, NULL, 5, NULL);
 
