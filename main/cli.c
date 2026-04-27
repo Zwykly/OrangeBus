@@ -5,6 +5,10 @@
 #include "a2dp_sink.h"
 #include "hfp_client.h"
 #include "eq_processor.h"
+#include "ibus.h"
+#include "cdc.h"
+#include "tel.h"
+#include "ibus_config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -14,11 +18,15 @@
 #define TAG "CLI"
 
 struct cli_t {
-audio_output_t *audio;
-avrcp_controller_t *avrcp;
-a2dp_sink_t *a2dp;
-hfp_client_t *hfp;
-eq_processor_t *eq;
+    audio_output_t *audio;
+    avrcp_controller_t *avrcp;
+    a2dp_sink_t *a2dp;
+    hfp_client_t *hfp;
+    eq_processor_t *eq;
+    ibus_t *ibus;
+    cdc_t *cdc;
+    tel_t *tel;
+    ibus_config_t *config;
 };
 
 static void serial_cmd_task(void *arg)
@@ -136,23 +144,109 @@ if (b) {
 ESP_LOGI(TAG, " B%d: %.0fHz Q%.1f %+.1fdB", i, b->freq, b->q, b->gain_db);
 }
 }
-break;
-        default:
+        break;
+    case 'i':
+        if (cli->ibus) {
+            ibus_set_debug_mode(cli->ibus, !ibus_is_debug_mode(cli->ibus));
+            ESP_LOGI(TAG, "IBUS Debug: %s", ibus_is_debug_mode(cli->ibus) ? "ON" : "OFF");
+        }
+        break;
+    case 'I':
+        ESP_LOGI(TAG, "=== IBUS Status ===");
+        if (cli->ibus) {
+            ESP_LOGI(TAG, " Debug: %s", ibus_is_debug_mode(cli->ibus) ? "ON" : "OFF");
+        }
+        if (cli->cdc) {
+            ESP_LOGI(TAG, " CDC: %s, Ign: %s",
+                cdc_is_playing(cli->cdc) ? "PLAYING" : "STOPPED",
+                cdc_is_ignition_on(cli->cdc) ? "ON" : "OFF");
+        }
+        if (cli->tel) {
+            ESP_LOGI(TAG, " TEL: %s, Call: %s",
+                tel_is_connected(cli->tel) ? "CONNECTED" : "DISCONNECTED",
+                tel_is_call_active(cli->tel) ? "ACTIVE" : "INACTIVE");
+        }
+        if (cli->config) {
+            uint8_t uiMode = ibus_config_get(cli->config, "ui_mode");
+            const char *uiStr = "UNKNOWN";
+            switch (uiMode) {
+            case BLUEBUS_UI_MODE_CD53: uiStr = "CD53"; break;
+            case BLUEBUS_UI_MODE_BMBT: uiStr = "BMBT"; break;
+            case BLUEBUS_UI_MODE_MID:  uiStr = "MID"; break;
+            case BLUEBUS_UI_MODE_MIR:  uiStr = "MIR"; break;
+            }
+            ESP_LOGI(TAG, " UI: %s, Autoplay: %d, Blink: %d, Locks: %d, Mirrors: %d",
+                uiStr,
+                ibus_config_get(cli->config, "autoplay"),
+                ibus_config_get(cli->config, "comfort_blink"),
+                ibus_config_get(cli->config, "comfort_locks"),
+                ibus_config_get(cli->config, "comfort_mirrors"));
+        }
+        break;
+    case 'u':
+        if (cli->config) {
+            uint8_t modes[] = {BLUEBUS_UI_MODE_CD53, BLUEBUS_UI_MODE_BMBT, BLUEBUS_UI_MODE_MID, BLUEBUS_UI_MODE_MIR};
+            uint8_t cur = ibus_config_get(cli->config, "ui_mode");
+            uint8_t next = 0;
+            for (int j = 0; j < 4; j++) {
+                if (modes[j] == cur) { next = modes[(j + 1) % 4]; break; }
+            }
+            ibus_config_set(cli->config, "ui_mode", next);
+            const char *str = "UNKNOWN";
+            switch (next) {
+            case BLUEBUS_UI_MODE_CD53: str = "CD53"; break;
+            case BLUEBUS_UI_MODE_BMBT: str = "BMBT"; break;
+            case BLUEBUS_UI_MODE_MID:  str = "MID"; break;
+            case BLUEBUS_UI_MODE_MIR:  str = "MIR"; break;
+            }
+            ESP_LOGI(TAG, "UI Mode: %s", str);
+        }
+        break;
+    case 'U':
+        if (cli->config) {
+            ibus_config_set(cli->config, "autoplay",
+                ibus_config_get(cli->config, "autoplay") ? 0 : 1);
+            ESP_LOGI(TAG, "Autoplay: %s", ibus_config_get(cli->config, "autoplay") ? "ON" : "OFF");
+        }
+        break;
+    case 'c':
+        if (cli->config) {
+            ibus_config_set(cli->config, "comfort_blink",
+                ibus_config_get(cli->config, "comfort_blink") ? 0 : 1);
+            ESP_LOGI(TAG, "Comfort Blink: %s",
+                ibus_config_get(cli->config, "comfort_blink") ? "ON" : "OFF");
+        }
+        break;
+    case 'C':
+        if (cli->config) {
+            uint8_t locks = ibus_config_get(cli->config, "comfort_locks") ? 0 : 1;
+            uint8_t mirrors = ibus_config_get(cli->config, "comfort_mirrors") ? 0 : 1;
+            ibus_config_set(cli->config, "comfort_locks", locks);
+            ibus_config_set(cli->config, "comfort_mirrors", mirrors);
+            ESP_LOGI(TAG, "Locks: %s, Mirrors: %s",
+                locks ? "ON" : "OFF", mirrors ? "ON" : "OFF");
+        }
+        break;
+    default:
             break;
         }
     }
 }
 
-cli_t *cli_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp, hfp_client_t *hfp, eq_processor_t *eq)
+cli_t *cli_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp, hfp_client_t *hfp, eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, tel_t *tel, ibus_config_t *config)
 {
-cli_t *cli = calloc(1, sizeof(cli_t));
-if (!cli) return NULL;
-cli->audio = audio;
-cli->avrcp = avrcp;
-cli->a2dp = a2dp;
-cli->hfp = hfp;
-cli->eq = eq;
-return cli;
+    cli_t *cli = calloc(1, sizeof(cli_t));
+    if (!cli) return NULL;
+    cli->audio = audio;
+    cli->avrcp = avrcp;
+    cli->a2dp = a2dp;
+    cli->hfp = hfp;
+    cli->eq = eq;
+    cli->ibus = ibus;
+    cli->cdc = cdc;
+    cli->tel = tel;
+    cli->config = config;
+    return cli;
 }
 
 void cli_destroy(cli_t *cli)
