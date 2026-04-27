@@ -10,6 +10,7 @@ audio_output_t *audio_output_create(void);
 void audio_output_destroy(audio_output_t *ao);
 
 esp_err_t audio_output_init(audio_output_t *ao, uint32_t rate);
+void audio_output_set_eq(audio_output_t *ao, eq_processor_t *eq);
 
 void audio_output_switch_a2dp(audio_output_t *ao);
 void audio_output_switch_sco(audio_output_t *ao, bool msbc);

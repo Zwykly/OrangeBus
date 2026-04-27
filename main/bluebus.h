@@ -37,5 +37,7 @@ typedef struct avrcp_controller_t avrcp_controller_t;
 typedef struct a2dp_sink_t a2dp_sink_t;
 typedef struct hfp_client_t hfp_client_t;
 typedef struct cli_t cli_t;
+typedef struct eq_processor_t eq_processor_t;
+typedef struct spp_server_t spp_server_t;
 
 #endif

@@ -5,6 +5,8 @@
 #include "hfp_client.h"
 #include "bt_manager.h"
 #include "cli.h"
+#include "eq_processor.h"
+#include "spp_server.h"
 #include "esp_log.h"
 #include "esp_gap_bt_api.h"
 #include "driver/gpio.h"
@@ -18,9 +20,10 @@ void app_main(void)
     ESP_LOGI(TAG, " ESP32 BlueBus BT Test (ESP-IDF v6.0)");
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "Pair phone with 'BMW-BlueBus'");
-    ESP_LOGI(TAG, "Commands: +/- vol, m mute, p play, s pause");
-    ESP_LOGI(TAG, " n next, b prev, a answer, r reject, d redial");
-    ESP_LOGI(TAG, " v voice (AVRCP), V voice (HFP), h status");
+ESP_LOGI(TAG, "Commands: +/- vol, m mute, p play, s pause");
+ESP_LOGI(TAG, " n next, b prev, a answer, r reject, d redial");
+ESP_LOGI(TAG, " v voice (AVRCP), V voice (HFP), h status");
+ESP_LOGI(TAG, " e toggle EQ, E show EQ bands");
 
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << BLUEBUS_BT_LED) | (1ULL << BLUEBUS_TEL_MUTE),
@@ -35,8 +38,12 @@ void app_main(void)
 
     bt_manager_init();
 
-    audio_output_t *audio = audio_output_create();
-    audio_output_init(audio, 44100);
+audio_output_t *audio = audio_output_create();
+audio_output_init(audio, 44100);
+
+eq_processor_t *eq = eq_processor_create();
+eq_processor_init(eq, 44100);
+audio_output_set_eq(audio, eq);
 
     avrcp_controller_t *avrcp = avrcp_controller_create();
     avrcp_controller_init(avrcp);
@@ -60,9 +67,13 @@ void app_main(void)
     ret = hfp_client_register_callbacks(hfp);
     ESP_LOGI(TAG, "HFP client init: %s", esp_err_to_name(ret));
 
-    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 
-    cli_t *cli = cli_create(audio, avrcp, a2dp, hfp);
+spp_server_t *spp = spp_server_create(eq);
+ret = spp_server_init(spp);
+ESP_LOGI(TAG, "SPP server init: %s", esp_err_to_name(ret));
+
+cli_t *cli = cli_create(audio, avrcp, a2dp, hfp, eq);
     cli_start(cli);
 
     ESP_LOGI(TAG, "========================================");

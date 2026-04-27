@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
+#include "eq_processor.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "driver/i2s_std.h"
@@ -10,14 +11,15 @@
 #define TAG "AUDIO_OUT"
 
 struct audio_output_t {
-    i2s_chan_handle_t tx_handle;
-    SemaphoreHandle_t mutex;
-    uint32_t rate;
-    bool is_a2dp_mode;
-    bool initialized;
-    uint8_t volume;
-    bool muted;
-    int16_t sco_stereo_buf[480];
+i2s_chan_handle_t tx_handle;
+SemaphoreHandle_t mutex;
+uint32_t rate;
+bool is_a2dp_mode;
+bool initialized;
+uint8_t volume;
+bool muted;
+int16_t sco_stereo_buf[480];
+eq_processor_t *eq;
 };
 
 static bool i2s_configure(audio_output_t *ao, uint32_t rate)
@@ -107,9 +109,14 @@ void audio_output_destroy(audio_output_t *ao)
 
 esp_err_t audio_output_init(audio_output_t *ao, uint32_t rate)
 {
-    if (!ao) return ESP_ERR_INVALID_ARG;
-    if (!i2s_configure(ao, rate)) return ESP_FAIL;
-    return ESP_OK;
+if (!ao) return ESP_ERR_INVALID_ARG;
+if (!i2s_configure(ao, rate)) return ESP_FAIL;
+return ESP_OK;
+}
+
+void audio_output_set_eq(audio_output_t *ao, eq_processor_t *eq)
+{
+if (ao) ao->eq = eq;
 }
 
 void audio_output_switch_a2dp(audio_output_t *ao)
@@ -169,22 +176,28 @@ bool audio_output_is_a2dp_mode(const audio_output_t *ao)
 
 void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t len)
 {
-    if (!ao || ao->muted || !ao->initialized || ao->tx_handle == NULL) return;
-    if (ao->mutex && !xSemaphoreTake(ao->mutex, pdMS_TO_TICKS(10))) return;
+if (!ao || ao->muted || !ao->initialized || ao->tx_handle == NULL) return;
+if (ao->mutex && !xSemaphoreTake(ao->mutex, pdMS_TO_TICKS(10))) return;
 
-    if (ao->volume >= 100) {
-        i2s_channel_write(ao->tx_handle, data, len, NULL, portMAX_DELAY);
-    } else {
-        int16_t *samples = (int16_t *)data;
-        uint32_t sample_count = len / 2;
-        float scale = ao->volume / 100.0f;
-        for (uint32_t i = 0; i < sample_count; i++) {
-            samples[i] = (int16_t)(samples[i] * scale);
-        }
-        i2s_channel_write(ao->tx_handle, data, len, NULL, portMAX_DELAY);
+int16_t *samples = (int16_t *)data;
+uint32_t sample_count = len / 2;
+
+if (ao->eq && eq_processor_is_enabled(ao->eq)) {
+    for (uint32_t i = 0; i < sample_count; i += 2) {
+        eq_processor_process_frame(ao->eq, &samples[i], &samples[i + 1]);
     }
+}
 
-    if (ao->mutex) xSemaphoreGive(ao->mutex);
+if (ao->volume < 100) {
+    float scale = ao->volume / 100.0f;
+    for (uint32_t i = 0; i < sample_count; i++) {
+        samples[i] = (int16_t)(samples[i] * scale);
+    }
+}
+
+i2s_channel_write(ao->tx_handle, data, len, NULL, portMAX_DELAY);
+
+if (ao->mutex) xSemaphoreGive(ao->mutex);
 }
 
 void audio_output_hfp_recv_cb(audio_output_t *ao, const uint8_t *data, uint32_t len)

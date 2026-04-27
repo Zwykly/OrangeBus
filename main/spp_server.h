@@ -1,0 +1,15 @@
+#ifndef SPP_SERVER_H
+#define SPP_SERVER_H
+
+#include <stdbool.h>
+#include "esp_err.h"
+#include "bluebus.h"
+
+spp_server_t *spp_server_create(eq_processor_t *eq);
+void spp_server_destroy(spp_server_t *spp);
+
+esp_err_t spp_server_init(spp_server_t *spp);
+bool spp_server_is_connected(const spp_server_t *spp);
+esp_err_t spp_server_send(spp_server_t *spp, const char *msg);
+
+#endif
