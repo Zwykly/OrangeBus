@@ -327,17 +327,16 @@ void ibus_send_business_nav_title(ibus_t *ibus, const char *text)
         length = BLUEBUS_IBUS_MIR_MAX_CHARS;
     }
     uint8_t buf[BLUEBUS_IBUS_MIR_MAX_CHARS + 3];
-    buf[0] = BLUEBUS_IBUS_CMD_GT_WRITE_TITLE;
-    buf[1] = 0x40;
-    buf[2] = 0x30;
-    memcpy(buf + 3, text, length);
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_DEV_GT, buf, length + 3);
+    buf[0] = 0x40;
+    buf[1] = 0x30;
+    memcpy(buf + 2, text, length);
+    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_DEV_GT, BLUEBUS_IBUS_CMD_GT_WRITE_TITLE, buf, length + 2);
 }
 
 void ibus_send_dsp_config(ibus_t *ibus, uint8_t mode)
 {
-    uint8_t data[] = {BLUEBUS_IBUS_DSP_CMD_CONFIG_SET, mode};
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_DEV_DSP, data, sizeof(data));
+    uint8_t data[] = {mode};
+    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_DEV_DSP, BLUEBUS_IBUS_DSP_CMD_CONFIG_SET, data, sizeof(data));
 }
 
 bool ibus_is_debug_mode(const ibus_t *ibus)

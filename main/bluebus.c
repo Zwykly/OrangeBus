@@ -18,6 +18,7 @@
 #include "comfort.h"
 #include "esp_log.h"
 #include "esp_gap_bt_api.h"
+#include "esp_avrc_api.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -135,7 +136,7 @@ static void send_metadata_to_ui(ibus_ctx_t *ic, const bluebus_metadata_t *meta, 
 
     char metaText[BLUEBUS_IBUS_MID_MAX_CHARS + 1];
     if (meta->title[0] && meta->artist[0]) {
-        snprintf(metaText, sizeof(metaText), "%.11s - %.11s", meta->title, meta->artist);
+        snprintf(metaText, sizeof(metaText), "%.10s - %.10s", meta->title, meta->artist);
     } else if (meta->title[0]) {
         snprintf(metaText, sizeof(metaText), "%.24s", meta->title);
     } else {
