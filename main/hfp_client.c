@@ -8,7 +8,6 @@
 #include "esp_hf_client_api.h"
 #include "esp_avrc_api.h"
 #include "freertos/FreeRTOS.h"
-#include "driver/gpio.h"
 
 #define TAG "HFP_CLIENT"
 
@@ -23,8 +22,6 @@ struct hfp_client_t {
     audio_output_t *audio;
     avrcp_controller_t *avrcp;
     a2dp_sink_t *a2dp;
-    uint8_t mute_pin;
-    uint8_t led_pin;
 };
 
 static hfp_client_t *s_instance = NULL;
@@ -57,14 +54,10 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
             state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
             hf->state = BLUEBUS_HFP_CONNECTED;
             memcpy(hf->peer_bda, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
-            gpio_set_level(hf->led_pin, 1);
             ESP_LOGI(TAG, "HFP Connected");
         } else if (state == ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED) {
             hf->sco_open = false;
             hf->state = BLUEBUS_HFP_IDLE;
-            if (a2dp_sink_get_state(hf->a2dp) == BLUEBUS_A2DP_IDLE) {
-                gpio_set_level(hf->led_pin, 0);
-            }
             ESP_LOGI(TAG, "HFP Disconnected");
         }
         break;
@@ -75,19 +68,16 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
             hf->sco_open = true;
             hf->sco_is_msbc = true;
             hf->state = BLUEBUS_HFP_AUDIO_OPEN;
-            gpio_set_level(hf->mute_pin, 1);
             audio_output_switch_sco(hf->audio, true);
             ESP_LOGI(TAG, "SCO Audio Open (mSBC 16kHz)");
         } else if (audio_state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
             hf->sco_open = true;
             hf->sco_is_msbc = false;
             hf->state = BLUEBUS_HFP_AUDIO_OPEN;
-            gpio_set_level(hf->mute_pin, 1);
             audio_output_switch_sco(hf->audio, false);
             ESP_LOGI(TAG, "SCO Audio Open (CVSD 8kHz)");
         } else if (audio_state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
             hf->sco_open = false;
-            gpio_set_level(hf->mute_pin, 0);
             if (hf->state == BLUEBUS_HFP_ACTIVE || hf->state == BLUEBUS_HFP_AUDIO_OPEN) {
                 hf->state = BLUEBUS_HFP_CONNECTED;
             }
@@ -142,7 +132,6 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
             hf->caller_id[0] = '\0';
             if (hf->state == BLUEBUS_HFP_ACTIVE || hf->state == BLUEBUS_HFP_AUDIO_OPEN) {
                 esp_hf_client_disconnect_audio(hf->peer_bda);
-                gpio_set_level(hf->mute_pin, 0);
                 hf->state = BLUEBUS_HFP_CONNECTED;
                 audio_output_switch_a2dp(hf->audio);
             }
@@ -171,15 +160,13 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
     }
 }
 
-hfp_client_t *hfp_client_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp, uint8_t mute_pin, uint8_t led_pin)
+hfp_client_t *hfp_client_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp)
 {
     hfp_client_t *hf = calloc(1, sizeof(hfp_client_t));
     if (!hf) return NULL;
     hf->audio = audio;
     hf->avrcp = avrcp;
     hf->a2dp = a2dp;
-    hf->mute_pin = mute_pin;
-    hf->led_pin = led_pin;
     return hf;
 }
 

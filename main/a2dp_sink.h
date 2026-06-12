@@ -6,7 +6,7 @@
 #include "esp_err.h"
 #include "bluebus.h"
 
-a2dp_sink_t *a2dp_sink_create(audio_output_t *audio, uint8_t led_pin);
+a2dp_sink_t *a2dp_sink_create(audio_output_t *audio);
 void a2dp_sink_destroy(a2dp_sink_t *sink);
 
 esp_err_t a2dp_sink_init(a2dp_sink_t *sink);

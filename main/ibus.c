@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "driver/uart.h"
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ibus_config.h"
@@ -17,6 +18,7 @@ struct ibus_t {
     bluebus_ibus_cb_t callbacks[BLUEBUS_IBUS_EVT_COUNT];
     uint8_t txBuf[BLUEBUS_IBUS_MAX_PKT];
     bool debugMode;
+    bool uart_installed;
     ibus_config_t *config;
 };
 
@@ -89,7 +91,9 @@ ibus_t *ibus_create(ibus_config_t *config)
 void ibus_destroy(ibus_t *ibus)
 {
     if (ibus) {
-        uart_driver_delete(BLUEBUS_IBUS_UART_NUM);
+        if (ibus->uart_installed) {
+            uart_driver_delete(BLUEBUS_IBUS_UART_NUM);
+        }
         free(ibus);
     }
 }
@@ -110,14 +114,19 @@ esp_err_t ibus_init(ibus_t *ibus)
     esp_err_t ret = uart_driver_install(BLUEBUS_IBUS_UART_NUM,
         BLUEBUS_IBUS_RX_BUF_SIZE, BLUEBUS_IBUS_TX_BUF_SIZE, 0, NULL, 0);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "UART driver install failed: %s", esp_err_to_name(ret));
-        return ret;
+        ESP_LOGW(TAG, "UART driver install failed: %s. I-BUS unavailable, continuing...", esp_err_to_name(ret));
+        ibus->uart_installed = false;
+        ibus->debugMode = false;
+        s_instance = ibus;
+        return ESP_OK;
     }
 
     ret = uart_param_config(BLUEBUS_IBUS_UART_NUM, &uart_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART param config failed: %s", esp_err_to_name(ret));
-        return ret;
+        uart_driver_delete(BLUEBUS_IBUS_UART_NUM);
+        ibus->uart_installed = false;
+        return ESP_OK;
     }
 
     ret = uart_set_pin(BLUEBUS_IBUS_UART_NUM,
@@ -125,12 +134,16 @@ esp_err_t ibus_init(ibus_t *ibus)
         UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART set pin failed: %s", esp_err_to_name(ret));
-        return ret;
+        uart_driver_delete(BLUEBUS_IBUS_UART_NUM);
+        ibus->uart_installed = false;
+        return ESP_OK;
     }
 
-	ibus->debugMode = false;
+    gpio_pullup_en(GPIO_NUM_16);
 
-	s_instance = ibus;
+    ibus->uart_installed = true;
+    ibus->debugMode = false;
+    s_instance = ibus;
     ESP_LOGI(TAG, "I-BUS UART initialized (9600 8E1, TX=%d, RX=%d, debug=%s)",
         BLUEBUS_IBUS_TX, BLUEBUS_IBUS_RX, ibus->debugMode ? "ON" : "OFF");
     return ESP_OK;
@@ -216,6 +229,7 @@ static void send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
         }
         return;
     }
+    if (!ibus->uart_installed) return;
     uart_write_bytes(BLUEBUS_IBUS_UART_NUM, buf, len);
     uart_wait_tx_done(BLUEBUS_IBUS_UART_NUM, pdMS_TO_TICKS(50));
 }
@@ -241,6 +255,7 @@ void ibus_process(ibus_t *ibus)
 {
     if (!ibus) return;
     if (ibus->debugMode) return;
+    if (!ibus->uart_installed) return;
     uint8_t buf[32];
     int readLen;
     while ((readLen = uart_read_bytes(BLUEBUS_IBUS_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(10))) > 0) {

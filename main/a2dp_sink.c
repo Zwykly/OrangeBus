@@ -4,14 +4,12 @@
 #include "esp_log.h"
 #include "esp_a2dp_api.h"
 #include "freertos/FreeRTOS.h"
-#include "driver/gpio.h"
 
 #define TAG "A2DP_SINK"
 
 struct a2dp_sink_t {
     bluebus_a2dp_state_t state;
     audio_output_t *audio;
-    uint8_t led_pin;
     bluebus_hfp_state_t *hfp_state_ref;
 };
 
@@ -33,13 +31,9 @@ static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     case ESP_A2D_CONNECTION_STATE_EVT:
         if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
             sink->state = BLUEBUS_A2DP_CONNECTED;
-            gpio_set_level(sink->led_pin, 1);
             ESP_LOGI(TAG, "A2DP Connected");
         } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             sink->state = BLUEBUS_A2DP_IDLE;
-            if (!sink->hfp_state_ref || *sink->hfp_state_ref < BLUEBUS_HFP_CONNECTED) {
-                gpio_set_level(sink->led_pin, 0);
-            }
             ESP_LOGI(TAG, "A2DP Disconnected");
         }
         break;
@@ -59,12 +53,11 @@ static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     }
 }
 
-a2dp_sink_t *a2dp_sink_create(audio_output_t *audio, uint8_t led_pin)
+a2dp_sink_t *a2dp_sink_create(audio_output_t *audio)
 {
     a2dp_sink_t *sink = calloc(1, sizeof(a2dp_sink_t));
     if (!sink) return NULL;
     sink->audio = audio;
-    sink->led_pin = led_pin;
     return sink;
 }
 

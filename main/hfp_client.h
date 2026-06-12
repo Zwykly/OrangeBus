@@ -6,7 +6,7 @@
 #include "esp_err.h"
 #include "bluebus.h"
 
-hfp_client_t *hfp_client_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp, uint8_t mute_pin, uint8_t led_pin);
+hfp_client_t *hfp_client_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp);
 void hfp_client_destroy(hfp_client_t *hf);
 
 esp_err_t hfp_client_init(hfp_client_t *hf);

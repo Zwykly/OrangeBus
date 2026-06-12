@@ -304,17 +304,6 @@ ESP_LOGI(TAG, " e toggle EQ, E show EQ bands");
 ESP_LOGI(TAG, " i ibus debug, I ibus status, u cycle UI mode");
 ESP_LOGI(TAG, " U autoplay, c blink, C locks+mirrors");
 
-gpio_config_t io_conf = {
-.pin_bit_mask = (1ULL << BLUEBUS_BT_LED) | (1ULL << BLUEBUS_TEL_MUTE),
-.mode = GPIO_MODE_OUTPUT,
-.pull_up_en = GPIO_PULLUP_DISABLE,
-.pull_down_en = GPIO_PULLDOWN_DISABLE,
-.intr_type = GPIO_INTR_DISABLE,
-};
-gpio_config(&io_conf);
-gpio_set_level(BLUEBUS_BT_LED, 0);
-gpio_set_level(BLUEBUS_TEL_MUTE, 0);
-
 bt_manager_init();
 
 audio_output_t *audio = audio_output_create();
@@ -327,12 +316,12 @@ audio_output_set_eq(audio, eq);
 avrcp_controller_t *avrcp = avrcp_controller_create();
 avrcp_controller_init(avrcp);
 
-a2dp_sink_t *a2dp = a2dp_sink_create(audio, BLUEBUS_BT_LED);
+a2dp_sink_t *a2dp = a2dp_sink_create(audio);
 a2dp_sink_init(a2dp);
 
 avrcp_controller_set_a2dp_state_ref(avrcp, a2dp_sink_get_state_ptr(a2dp));
 
-hfp_client_t *hfp = hfp_client_create(audio, avrcp, a2dp, BLUEBUS_TEL_MUTE, BLUEBUS_BT_LED);
+hfp_client_t *hfp = hfp_client_create(audio, avrcp, a2dp);
 hfp_client_init(hfp);
 
 a2dp_sink_set_hfp_state_ref(a2dp, hfp_client_get_state_ptr(hfp));
