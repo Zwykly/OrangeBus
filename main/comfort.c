@@ -186,10 +186,18 @@ void comfort_on_lm_status(comfort_t *c, uint8_t *data, uint8_t len)
 
 bluebus_comfort_gm_variant_t comfort_get_gm_variant(const comfort_t *c)
 {
-    return c ? c->gmVariant : BLUEBUS_COMFORT_GM_UNKNOWN;
+	return c ? c->gmVariant : BLUEBUS_COMFORT_GM_UNKNOWN;
 }
 
 bluebus_comfort_lm_variant_t comfort_get_lm_variant(const comfort_t *c)
 {
-    return c ? c->lmVariant : BLUEBUS_COMFORT_LM_UNKNOWN;
+	return c ? c->lmVariant : BLUEBUS_COMFORT_LM_UNKNOWN;
+}
+
+void comfort_send_test_blink(comfort_t *c)
+{
+	if (!c || c->lmVariant == BLUEBUS_COMFORT_LM_UNKNOWN) return;
+	send_blink_command(c, true);
+	c->blinkOffTime = xTaskGetTickCount() * portTICK_PERIOD_MS + BLINK_ON_MS;
+	c->blinkActive = true;
 }

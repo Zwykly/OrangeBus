@@ -13,5 +13,6 @@ void ui_mir_tick(ui_mir_t *ui);
 void ui_mir_show_title(ui_mir_t *ui, const char *text);
 void ui_mir_clear(ui_mir_t *ui);
 void ui_mir_on_ignition(ui_mir_t *ui, bool on);
+void ui_mir_set_active(ui_mir_t *ui, bool active);
 
 #endif

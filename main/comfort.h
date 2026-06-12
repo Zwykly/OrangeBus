@@ -14,6 +14,7 @@ void comfort_on_ignition(comfort_t *c, bool on);
 void comfort_on_door_lock(comfort_t *c, bool locked);
 void comfort_on_gm_status(comfort_t *c, uint8_t *data, uint8_t len);
 void comfort_on_lm_status(comfort_t *c, uint8_t *data, uint8_t len);
+void comfort_send_test_blink(comfort_t *c);
 bluebus_comfort_gm_variant_t comfort_get_gm_variant(const comfort_t *c);
 bluebus_comfort_lm_variant_t comfort_get_lm_variant(const comfort_t *c);
 

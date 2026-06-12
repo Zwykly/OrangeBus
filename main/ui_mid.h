@@ -15,5 +15,6 @@ void ui_mid_clear(ui_mid_t *ui);
 void ui_mid_on_ignition(ui_mid_t *ui, bool on);
 void ui_mid_on_cdc_start(ui_mid_t *ui);
 void ui_mid_on_cdc_stop(ui_mid_t *ui);
+void ui_mid_set_active(ui_mid_t *ui, bool active);
 
 #endif

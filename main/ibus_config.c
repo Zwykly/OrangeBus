@@ -14,14 +14,12 @@ typedef struct {
 } config_entry_t;
 
 static const config_entry_t s_defaults[] = {
-    {"ui_mode",      BLUEBUS_UI_MODE_CD53},
-    {"debug",        0},
-    {"autoplay",     1},
-    {"comfort_blink",0},
-    {"comfort_locks",0},
-    {"comfort_mirrors",0},
-    {"comfort_park", 0},
-    {"meta_mode",    0},
+{"ui_mode", BLUEBUS_UI_MODE_CD53},
+{"autoplay", 1},
+{"comfort_blink",0},
+{"comfort_locks",0},
+{"comfort_mirrors",0},
+{"meta_mode", 0},
 };
 
 #define NUM_DEFAULTS (sizeof(s_defaults) / sizeof(s_defaults[0]))

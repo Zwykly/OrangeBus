@@ -13,5 +13,6 @@ void ui_cd53_tick(ui_cd53_t *ui);
 void ui_cd53_show_title(ui_cd53_t *ui, const char *text);
 void ui_cd53_clear(ui_cd53_t *ui);
 void ui_cd53_on_ignition(ui_cd53_t *ui, bool on);
+void ui_cd53_set_active(ui_cd53_t *ui, bool active);
 
 #endif

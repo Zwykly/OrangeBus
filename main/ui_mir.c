@@ -10,11 +10,12 @@
 #define MIR_REFRESH_INTERVAL 10000
 
 struct ui_mir_t {
-    ibus_t *ibus;
-    ibus_config_t *config;
-    bool ignitionOn;
-    uint32_t lastMetaTime;
-    char displayText[BLUEBUS_IBUS_MIR_MAX_CHARS + 1];
+ibus_t *ibus;
+ibus_config_t *config;
+bool ignitionOn;
+bool active;
+uint32_t lastMetaTime;
+char displayText[BLUEBUS_IBUS_MIR_MAX_CHARS + 1];
 };
 
 ui_mir_t *ui_mir_create(ibus_t *ibus, ibus_config_t *config)
@@ -43,37 +44,50 @@ esp_err_t ui_mir_init(ui_mir_t *ui)
 
 void ui_mir_tick(ui_mir_t *ui)
 {
-    if (!ui || !ui->ignitionOn) return;
-    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    if (strlen(ui->displayText) > 0 && (now - ui->lastMetaTime) >= MIR_REFRESH_INTERVAL) {
-        ibus_send_business_nav_title(ui->ibus, ui->displayText);
-        ui->lastMetaTime = now;
-    }
+	if (!ui || !ui->active || !ui->ignitionOn) return;
+	uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+	if (strlen(ui->displayText) > 0 && (now - ui->lastMetaTime) >= MIR_REFRESH_INTERVAL) {
+		ibus_send_business_nav_title(ui->ibus, ui->displayText);
+		ui->lastMetaTime = now;
+	}
 }
 
 void ui_mir_show_title(ui_mir_t *ui, const char *text)
 {
-    if (!ui || !text) return;
-    uint8_t len = strlen(text);
-    if (len > BLUEBUS_IBUS_MIR_MAX_CHARS) len = BLUEBUS_IBUS_MIR_MAX_CHARS;
-    memcpy(ui->displayText, text, len);
-    ui->displayText[len] = '\0';
-    ibus_send_business_nav_title(ui->ibus, ui->displayText);
-    ui->lastMetaTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
+	if (!ui || !text) return;
+	uint8_t len = strlen(text);
+	if (len > BLUEBUS_IBUS_MIR_MAX_CHARS) len = BLUEBUS_IBUS_MIR_MAX_CHARS;
+	memcpy(ui->displayText, text, len);
+	ui->displayText[len] = '\0';
+	if (ui->active) {
+		ibus_send_business_nav_title(ui->ibus, ui->displayText);
+		ui->lastMetaTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
+	}
 }
 
 void ui_mir_clear(ui_mir_t *ui)
 {
-    if (!ui) return;
-    memset(ui->displayText, 0, sizeof(ui->displayText));
-    ibus_send_business_nav_title(ui->ibus, "");
+	if (!ui) return;
+	memset(ui->displayText, 0, sizeof(ui->displayText));
+	if (ui->active) {
+		ibus_send_business_nav_title(ui->ibus, "");
+	}
 }
 
 void ui_mir_on_ignition(ui_mir_t *ui, bool on)
 {
-    if (!ui) return;
-    ui->ignitionOn = on;
-    if (!on) {
-        ui_mir_clear(ui);
-    }
+	if (!ui) return;
+	ui->ignitionOn = on;
+	if (!on && ui->active) {
+		ui_mir_clear(ui);
+	}
+}
+
+void ui_mir_set_active(ui_mir_t *ui, bool active)
+{
+	if (!ui) return;
+	if (ui->active && !active) {
+		ui_mir_clear(ui);
+	}
+	ui->active = active;
 }

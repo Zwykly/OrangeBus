@@ -128,11 +128,9 @@ esp_err_t ibus_init(ibus_t *ibus)
         return ret;
     }
 
-    if (ibus->config) {
-        ibus->debugMode = (ibus_config_get(ibus->config, "debug") != 0);
-    }
+	ibus->debugMode = false;
 
-    s_instance = ibus;
+	s_instance = ibus;
     ESP_LOGI(TAG, "I-BUS UART initialized (9600 8E1, TX=%d, RX=%d, debug=%s)",
         BLUEBUS_IBUS_TX, BLUEBUS_IBUS_RX, ibus->debugMode ? "ON" : "OFF");
     return ESP_OK;
@@ -145,6 +143,63 @@ void ibus_register_callback(ibus_t *ibus, bluebus_ibus_event_t event, bluebus_ib
     }
 }
 
+static const char *describe_src(uint8_t src)
+{
+    switch (src) {
+    case BLUEBUS_IBUS_DEV_CDC: return "CDC";
+    case BLUEBUS_IBUS_DEV_TEL: return "TEL";
+    case BLUEBUS_IBUS_DEV_RAD: return "RAD";
+    case BLUEBUS_IBUS_DEV_GT:  return "GT";
+    case BLUEBUS_IBUS_DEV_MID: return "MID";
+    case BLUEBUS_IBUS_DEV_DSP: return "DSP";
+    default: return "???";
+    }
+}
+
+static const char *describe_dst(uint8_t dst)
+{
+    switch (dst) {
+    case BLUEBUS_IBUS_DEV_RAD:  return "RAD";
+    case BLUEBUS_IBUS_DEV_MID:  return "MID";
+    case BLUEBUS_IBUS_DEV_BMBT: return "BMBT";
+    case BLUEBUS_IBUS_DEV_GT:   return "GT";
+    case BLUEBUS_IBUS_DEV_DSP:  return "DSP";
+    case BLUEBUS_IBUS_DEV_IKE:  return "IKE";
+    case BLUEBUS_IBUS_DEV_LCM:  return "LCM";
+    case BLUEBUS_IBUS_DEV_GM:   return "GM";
+    default: return "???";
+    }
+}
+
+static const char *describe_cmd(uint8_t src, uint8_t dst, uint8_t cmd)
+{
+    if (src == BLUEBUS_IBUS_DEV_CDC && dst == BLUEBUS_IBUS_DEV_RAD && cmd == BLUEBUS_IBUS_CMD_CDC_RESPONSE)
+        return "CDC_STATUS";
+    if (src == BLUEBUS_IBUS_DEV_TEL && cmd == BLUEBUS_IBUS_TEL_CMD_STATUS)
+        return "TEL_STATUS";
+    if (src == BLUEBUS_IBUS_DEV_TEL && cmd == BLUEBUS_IBUS_TEL_CMD_LED_STATUS)
+        return "TEL_LED";
+    if (src == BLUEBUS_IBUS_DEV_TEL && cmd == BLUEBUS_IBUS_TEL_CMD_TITLE_TEXT)
+        return "TEL_TITLE";
+    if (src == BLUEBUS_IBUS_DEV_MID && cmd == BLUEBUS_IBUS_MID_CMD_SET_MODE)
+        return "MID_SET_MODE";
+    if (src == BLUEBUS_IBUS_DEV_MID && dst == BLUEBUS_IBUS_DEV_RAD)
+        return "MID_TEXT";
+    if (src == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_WRITE_TITLE)
+        return "GT_TITLE";
+    if (src == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_WRITE_ZONE)
+        return "GT_ZONE";
+    if (src == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_WRITE_INDEX)
+        return "GT_INDEX";
+    if (src == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_CLEAR)
+        return "GT_CLEAR";
+    if (src == BLUEBUS_IBUS_DEV_RAD && dst == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_WRITE_TITLE)
+        return "RAD->GT_TITLE(BUS_NAV)";
+    if (src == BLUEBUS_IBUS_DEV_RAD && dst == BLUEBUS_IBUS_DEV_DSP && cmd == BLUEBUS_IBUS_DSP_CMD_CONFIG_SET)
+        return "DSP_CONFIG";
+    return "OTHER";
+}
+
 static void send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
 {
     if (ibus->debugMode) {
@@ -153,7 +208,12 @@ static void send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
         for (uint8_t i = 0; i < len; i++) {
             pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", buf[i]);
         }
-        ESP_LOGI(TAG, "[DBG-TX] %s", hex);
+        if (len >= 4) {
+            ESP_LOGI(TAG, "[DBG-TX] %s| %s->%s %s", hex,
+                     describe_src(buf[0]), describe_dst(buf[2]), describe_cmd(buf[0], buf[2], buf[3]));
+        } else {
+            ESP_LOGI(TAG, "[DBG-TX] %s", hex);
+        }
         return;
     }
     uart_write_bytes(BLUEBUS_IBUS_UART_NUM, buf, len);
@@ -180,9 +240,10 @@ void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const
 void ibus_process(ibus_t *ibus)
 {
     if (!ibus) return;
+    if (ibus->debugMode) return;
     uint8_t buf[32];
     int readLen;
-    while ((readLen = uart_read_bytes(BLUEBUS_IBUS_UART_NUM, buf, sizeof(buf), 0)) > 0) {
+    while ((readLen = uart_read_bytes(BLUEBUS_IBUS_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(10))) > 0) {
         for (int i = 0; i < readLen; i++) {
             uint8_t b = buf[i];
             if (ibus->rxLen == 0) {
@@ -346,10 +407,7 @@ bool ibus_is_debug_mode(const ibus_t *ibus)
 
 void ibus_set_debug_mode(ibus_t *ibus, bool enabled)
 {
-    if (!ibus) return;
-    ibus->debugMode = enabled;
-    if (ibus->config) {
-        ibus_config_set(ibus->config, "debug", enabled ? 1 : 0);
-    }
-    ESP_LOGI(TAG, "Debug mode: %s", enabled ? "ON" : "OFF");
+	if (!ibus) return;
+	ibus->debugMode = enabled;
+	ESP_LOGI(TAG, "Debug mode: %s (runtime only, not persisted)", enabled ? "ON" : "OFF");
 }

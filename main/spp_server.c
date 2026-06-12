@@ -4,12 +4,14 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_spp_api.h"
+#include "esp_avrc_api.h"
 #include "eq_processor.h"
 #include "ibus.h"
 #include "cdc.h"
 #include "tel.h"
 #include "ibus_config.h"
 #include "comfort.h"
+#include "avrcp_controller.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -18,16 +20,18 @@
 #define SPP_MAX_CMD 256
 
 struct spp_server_t {
-    bool connected;
-    uint32_t handle;
-    eq_processor_t *eq;
-    ibus_t *ibus;
-    cdc_t *cdc;
-    tel_t *tel;
-    ibus_config_t *config;
-    comfort_t *comfort;
-    char cmd_buf[SPP_MAX_CMD];
-    int cmd_len;
+bool connected;
+uint32_t handle;
+eq_processor_t *eq;
+ibus_t *ibus;
+cdc_t *cdc;
+tel_t *tel;
+ibus_config_t *config;
+comfort_t *comfort;
+avrcp_controller_t *avrcp;
+volatile bool *uiModeChanged;
+char cmd_buf[SPP_MAX_CMD];
+int cmd_len;
 };
 
 static spp_server_t *s_instance = NULL;
@@ -120,33 +124,69 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
     } else if (strncmp(cmd, "IBUS:TEL:CALLER:", 16) == 0) {
         tel_set_caller_id(spp->tel, cmd + 16);
         send_response(spp, "OK:CALLER_ID\r\n");
-    } else if (strncmp(cmd, "IBUS:CDC:PLAY", 13) == 0) {
-        cdc_set_playing(spp->cdc, true);
-        send_response(spp, "OK:CDC_PLAY\r\n");
-    } else if (strncmp(cmd, "IBUS:CDC:STOP", 13) == 0) {
-        cdc_set_playing(spp->cdc, false);
-        send_response(spp, "OK:CDC_STOP\r\n");
-    } else if (strncmp(cmd, "IBUS:CONFIG:UI:", 15) == 0) {
-        uint8_t mode = (uint8_t)atoi(cmd + 15);
-        ibus_config_set(spp->config, "ui_mode", mode);
-        char resp[32];
-        snprintf(resp, sizeof(resp), "OK:UI=%s\r\n", ui_mode_str(mode));
-        send_response(spp, resp);
-    } else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:BLINK:", 26) == 0) {
-        ibus_config_set(spp->config, "comfort_blink", (uint8_t)atoi(cmd + 26));
-        send_response(spp, "OK:BLINK\r\n");
-    } else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:LOCKS:", 26) == 0) {
-        ibus_config_set(spp->config, "comfort_locks", (uint8_t)atoi(cmd + 26));
-        send_response(spp, "OK:LOCKS\r\n");
-    } else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:MIRRORS:", 28) == 0) {
-        ibus_config_set(spp->config, "comfort_mirrors", (uint8_t)atoi(cmd + 28));
-        send_response(spp, "OK:MIRRORS\r\n");
-    } else if (strncmp(cmd, "IBUS:CONFIG:AUTOPLAY:", 21) == 0) {
-        ibus_config_set(spp->config, "autoplay", (uint8_t)atoi(cmd + 21));
-        send_response(spp, "OK:AUTOPLAY\r\n");
-    } else if (strncmp(cmd, "IBUS:CONFIG:META:", 17) == 0) {
-        ibus_config_set(spp->config, "meta_mode", (uint8_t)atoi(cmd + 17));
-        send_response(spp, "OK:META\r\n");
+	} else if (strncmp(cmd, "IBUS:CDC:PLAY", 13) == 0) {
+		cdc_set_playing(spp->cdc, true);
+		if (spp->avrcp) {
+			avrcp_controller_send_passthrough(spp->avrcp, ESP_AVRC_PT_CMD_PLAY);
+		}
+		send_response(spp, "OK:CDC_PLAY\r\n");
+	} else if (strncmp(cmd, "IBUS:CDC:STOP", 13) == 0) {
+		cdc_set_playing(spp->cdc, false);
+		if (spp->avrcp) {
+			avrcp_controller_send_passthrough(spp->avrcp, ESP_AVRC_PT_CMD_PAUSE);
+		}
+		send_response(spp, "OK:CDC_STOP\r\n");
+	} else if (strncmp(cmd, "IBUS:CONFIG:UI:", 15) == 0) {
+		uint8_t mode = (uint8_t)atoi(cmd + 15);
+		if (mode != BLUEBUS_UI_MODE_CD53 && mode != BLUEBUS_UI_MODE_BMBT
+			&& mode != BLUEBUS_UI_MODE_MID && mode != BLUEBUS_UI_MODE_MIR) {
+			send_response(spp, "ERR\r\n");
+		} else {
+			ibus_config_set(spp->config, "ui_mode", mode);
+			char resp[32];
+			snprintf(resp, sizeof(resp), "OK:UI=%s\r\n", ui_mode_str(mode));
+			send_response(spp, resp);
+			if (spp->uiModeChanged) {
+				*spp->uiModeChanged = true;
+			}
+		}
+	} else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:BLINK:", 26) == 0) {
+		uint8_t val = (uint8_t)atoi(cmd + 26);
+		ibus_config_set(spp->config, "comfort_blink", val);
+		char resp[32];
+		snprintf(resp, sizeof(resp), "OK:BLINK:%d\r\n", val);
+		send_response(spp, resp);
+		if (val && spp->comfort) {
+			comfort_send_test_blink(spp->comfort);
+		}
+	} else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:LOCKS:", 26) == 0) {
+		uint8_t val = (uint8_t)atoi(cmd + 26);
+		ibus_config_set(spp->config, "comfort_locks", val);
+		char resp[32];
+		snprintf(resp, sizeof(resp), "OK:LOCKS:%d\r\n", val);
+		send_response(spp, resp);
+	} else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:MIRRORS:", 28) == 0) {
+		uint8_t val = (uint8_t)atoi(cmd + 28);
+		ibus_config_set(spp->config, "comfort_mirrors", val);
+		char resp[32];
+		snprintf(resp, sizeof(resp), "OK:MIRRORS:%d\r\n", val);
+		send_response(spp, resp);
+	} else if (strncmp(cmd, "IBUS:CONFIG:AUTOPLAY:", 21) == 0) {
+		uint8_t val = (uint8_t)atoi(cmd + 21);
+		ibus_config_set(spp->config, "autoplay", val);
+		char resp[32];
+		snprintf(resp, sizeof(resp), "OK:AUTOPLAY:%d\r\n", val);
+		send_response(spp, resp);
+	} else if (strncmp(cmd, "IBUS:CONFIG:META:", 17) == 0) {
+		uint8_t val = (uint8_t)atoi(cmd + 17);
+		if (val > 3) {
+			send_response(spp, "ERR\r\n");
+		} else {
+			ibus_config_set(spp->config, "meta_mode", val);
+			char resp[32];
+			snprintf(resp, sizeof(resp), "OK:META:%d\r\n", val);
+			send_response(spp, resp);
+		}
     } else if (strncmp(cmd, "IBUS:SEND:", 10) == 0) {
         uint8_t buf[32];
         uint8_t idx = 0;
@@ -269,17 +309,19 @@ static void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
     }
 }
 
-spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, tel_t *tel, ibus_config_t *config, comfort_t *comfort)
+spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, tel_t *tel, ibus_config_t *config, comfort_t *comfort, avrcp_controller_t *avrcp, volatile bool *uiModeChanged)
 {
-    spp_server_t *spp = calloc(1, sizeof(spp_server_t));
-    if (!spp) return NULL;
-    spp->eq = eq;
-    spp->ibus = ibus;
-    spp->cdc = cdc;
-    spp->tel = tel;
-    spp->config = config;
-    spp->comfort = comfort;
-    return spp;
+	spp_server_t *spp = calloc(1, sizeof(spp_server_t));
+	if (!spp) return NULL;
+	spp->eq = eq;
+	spp->ibus = ibus;
+	spp->cdc = cdc;
+	spp->tel = tel;
+	spp->config = config;
+	spp->comfort = comfort;
+	spp->avrcp = avrcp;
+	spp->uiModeChanged = uiModeChanged;
+	return spp;
 }
 
 void spp_server_destroy(spp_server_t *spp)
