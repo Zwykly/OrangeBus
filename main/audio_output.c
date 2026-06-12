@@ -85,7 +85,7 @@ static bool i2s_configure(audio_output_t *ao, uint32_t rate)
         return false;
     }
 
-    if (ao->rx_handle != NULL) {
+    if (ao->rx_handle != NULL && rate <= 16000) {
         ret = i2s_channel_init_std_mode(ao->rx_handle, &std_cfg);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "I2S RX init failed: %s", esp_err_to_name(ret));
@@ -109,12 +109,15 @@ static bool i2s_configure(audio_output_t *ao, uint32_t rate)
             if (ao->mutex) xSemaphoreGive(ao->mutex);
             return false;
         }
+    } else if (ao->rx_handle != NULL) {
+        i2s_del_channel(ao->rx_handle);
+        ao->rx_handle = NULL;
     }
 
     ao->is_a2dp_mode = (rate > 16000);
     ao->rate = rate;
     ao->initialized = true;
-    ESP_LOGI(TAG, "I2S configured: %luHz stereo (TX+RX)", rate);
+    ESP_LOGI(TAG, "I2S configured: %luHz %s", rate, (ao->rx_handle != NULL) ? "stereo (TX+RX)" : "stereo (TX only)");
 
     if (ao->mutex) xSemaphoreGive(ao->mutex);
     return true;
