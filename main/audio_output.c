@@ -41,7 +41,8 @@ static bool i2s_configure(audio_output_t *ao, uint32_t rate)
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.auto_clear_after_cb = true;
-    esp_err_t ret = i2s_new_channel(&chan_cfg, &ao->tx_handle, &ao->rx_handle);
+    i2s_chan_handle_t *rx_handle_ptr = (rate <= 16000) ? &ao->rx_handle : NULL;
+    esp_err_t ret = i2s_new_channel(&chan_cfg, &ao->tx_handle, rx_handle_ptr);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2S new channel failed: %s", esp_err_to_name(ret));
         if (ao->mutex) xSemaphoreGive(ao->mutex);
@@ -78,9 +79,11 @@ static bool i2s_configure(audio_output_t *ao, uint32_t rate)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2S TX enable failed: %s", esp_err_to_name(ret));
         i2s_del_channel(ao->tx_handle);
-        i2s_del_channel(ao->rx_handle);
+        if (ao->rx_handle) {
+            i2s_del_channel(ao->rx_handle);
+            ao->rx_handle = NULL;
+        }
         ao->tx_handle = NULL;
-        ao->rx_handle = NULL;
         if (ao->mutex) xSemaphoreGive(ao->mutex);
         return false;
     }
@@ -109,9 +112,6 @@ static bool i2s_configure(audio_output_t *ao, uint32_t rate)
             if (ao->mutex) xSemaphoreGive(ao->mutex);
             return false;
         }
-    } else if (ao->rx_handle != NULL) {
-        i2s_del_channel(ao->rx_handle);
-        ao->rx_handle = NULL;
     }
 
     ao->is_a2dp_mode = (rate > 16000);
