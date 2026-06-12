@@ -12,6 +12,7 @@
 
 struct audio_output_t {
 i2s_chan_handle_t tx_handle;
+i2s_chan_handle_t rx_handle;
 SemaphoreHandle_t mutex;
 uint32_t rate;
 bool is_a2dp_mode;
@@ -31,11 +32,16 @@ static bool i2s_configure(audio_output_t *ao, uint32_t rate)
         i2s_del_channel(ao->tx_handle);
         ao->tx_handle = NULL;
     }
+    if (ao->rx_handle != NULL) {
+        i2s_channel_disable(ao->rx_handle);
+        i2s_del_channel(ao->rx_handle);
+        ao->rx_handle = NULL;
+    }
     ao->initialized = false;
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.auto_clear_after_cb = true;
-    esp_err_t ret = i2s_new_channel(&chan_cfg, &ao->tx_handle, NULL);
+    esp_err_t ret = i2s_new_channel(&chan_cfg, &ao->tx_handle, &ao->rx_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2S new channel failed: %s", esp_err_to_name(ret));
         if (ao->mutex) xSemaphoreGive(ao->mutex);
@@ -70,17 +76,45 @@ static bool i2s_configure(audio_output_t *ao, uint32_t rate)
 
     ret = i2s_channel_enable(ao->tx_handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2S enable failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "I2S TX enable failed: %s", esp_err_to_name(ret));
         i2s_del_channel(ao->tx_handle);
+        i2s_del_channel(ao->rx_handle);
         ao->tx_handle = NULL;
+        ao->rx_handle = NULL;
         if (ao->mutex) xSemaphoreGive(ao->mutex);
         return false;
+    }
+
+    if (ao->rx_handle != NULL) {
+        ret = i2s_channel_init_std_mode(ao->rx_handle, &std_cfg);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "I2S RX init failed: %s", esp_err_to_name(ret));
+            i2s_channel_disable(ao->tx_handle);
+            i2s_del_channel(ao->tx_handle);
+            i2s_del_channel(ao->rx_handle);
+            ao->tx_handle = NULL;
+            ao->rx_handle = NULL;
+            if (ao->mutex) xSemaphoreGive(ao->mutex);
+            return false;
+        }
+        ret = i2s_channel_enable(ao->rx_handle);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "I2S RX enable failed: %s", esp_err_to_name(ret));
+            i2s_channel_disable(ao->tx_handle);
+            i2s_del_channel(ao->tx_handle);
+            i2s_channel_disable(ao->rx_handle);
+            i2s_del_channel(ao->rx_handle);
+            ao->tx_handle = NULL;
+            ao->rx_handle = NULL;
+            if (ao->mutex) xSemaphoreGive(ao->mutex);
+            return false;
+        }
     }
 
     ao->is_a2dp_mode = (rate > 16000);
     ao->rate = rate;
     ao->initialized = true;
-    ESP_LOGI(TAG, "I2S configured: %luHz stereo", rate);
+    ESP_LOGI(TAG, "I2S configured: %luHz stereo (TX+RX)", rate);
 
     if (ao->mutex) xSemaphoreGive(ao->mutex);
     return true;
@@ -102,6 +136,10 @@ void audio_output_destroy(audio_output_t *ao)
     if (ao->tx_handle) {
         i2s_channel_disable(ao->tx_handle);
         i2s_del_channel(ao->tx_handle);
+    }
+    if (ao->rx_handle) {
+        i2s_channel_disable(ao->rx_handle);
+        i2s_del_channel(ao->rx_handle);
     }
     if (ao->mutex) vSemaphoreDelete(ao->mutex);
     free(ao);
@@ -224,6 +262,35 @@ void audio_output_hfp_recv_cb(audio_output_t *ao, const uint8_t *data, uint32_t 
 uint32_t audio_output_hfp_send_cb(audio_output_t *ao, uint8_t *data, uint32_t len)
 {
     if (!data || len == 0) return 0;
-    memset(data, 0, len);
+    if (!ao || !ao->initialized || ao->rx_handle == NULL) {
+        memset(data, 0, len);
+        return len;
+    }
+
+    uint32_t mono_samples = len / 2;
+    if (mono_samples == 0) {
+        memset(data, 0, len);
+        return len;
+    }
+
+    size_t stereo_bytes = mono_samples * 4;
+    if (stereo_bytes > 960) {
+        stereo_bytes = 960;
+        mono_samples = 240;
+    }
+
+    int16_t stereo_buf[240 * 2];
+    size_t bytes_read = 0;
+    esp_err_t ret = i2s_channel_read(ao->rx_handle, stereo_buf, stereo_bytes, &bytes_read, pdMS_TO_TICKS(20));
+    if (ret != ESP_OK || bytes_read < stereo_bytes) {
+        memset(data, 0, len);
+        return len;
+    }
+
+    int16_t *mono = (int16_t *)data;
+    for (uint32_t i = 0; i < mono_samples; i++) {
+        mono[i] = stereo_buf[i * 2];
+    }
+
     return len;
 }
