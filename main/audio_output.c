@@ -220,6 +220,12 @@ void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t
 if (!ao || ao->muted || !ao->initialized || ao->tx_handle == NULL) return;
 if (ao->mutex && !xSemaphoreTake(ao->mutex, pdMS_TO_TICKS(10))) return;
 
+static uint32_t a2dp_cb_count = 0;
+a2dp_cb_count++;
+if (a2dp_cb_count % 500 == 0) {
+    ESP_LOGI(TAG, "A2DP data cb called, len=%lu", len);
+}
+
 int16_t *samples = (int16_t *)data;
 uint32_t sample_count = len / 2;
 
@@ -236,7 +242,11 @@ if (ao->volume < 100) {
     }
 }
 
-i2s_channel_write(ao->tx_handle, data, len, NULL, portMAX_DELAY);
+size_t written = 0;
+esp_err_t ret = i2s_channel_write(ao->tx_handle, data, len, &written, portMAX_DELAY);
+if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "I2S write failed: %s (written=%u/%lu)", esp_err_to_name(ret), written, len);
+}
 
 if (ao->mutex) xSemaphoreGive(ao->mutex);
 }
