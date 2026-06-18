@@ -1,7 +1,9 @@
 idf_component_register(
 SRCS
     "orangebus.c"
-    "ibus/ibus.c"
+    "ibus/ibus_driver.c"
+    "ibus/ibus_protocol.c"
+    "ibus/ibus_debug.c"
     "ibus/ibus_config.c"
     "bt/bt_manager.c"
     "bt/a2dp_sink.c"
