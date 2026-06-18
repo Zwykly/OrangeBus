@@ -129,8 +129,7 @@ esp_err_t ibus_init(ibus_t *ibus)
         return ESP_OK;
     }
 
-    /* TODO: GPIO_NUM_16 powinno byc ORANGEBUS_IBUS_RX (poprawka w commit 8) */
-    gpio_pullup_en(GPIO_NUM_16);
+    gpio_pullup_en((gpio_num_t)ORANGEBUS_IBUS_RX);
 
     ibus->uart_installed = true;
     ibus->debugMode = false;

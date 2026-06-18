@@ -251,14 +251,15 @@ void hfp_client_toggle_voice_recognition(hfp_client_t *hf)
     }
 }
 
-/* Rejestruje callbacki HFP w stosie Bluetooth i inicjalizuje klienta */
-/* TODO: ignoruje zwrotke esp_hf_client_init() przed rejestracja data callback */
+/* Rejestruje callbacki HFP i inicjalizuje klienta - data callback tylko przy sukcesie init */
 esp_err_t hfp_client_register_callbacks(hfp_client_t *hf)
 {
     if (!hf) return ESP_ERR_INVALID_ARG;
     s_instance = hf;
     esp_hf_client_register_callback(hfp_client_cb);
     esp_err_t ret = esp_hf_client_init();
-    esp_hf_client_register_data_callback(hfp_audio_recv_cb, hfp_audio_send_cb);
+    if (ret == ESP_OK) {
+        esp_hf_client_register_data_callback(hfp_audio_recv_cb, hfp_audio_send_cb);
+    }
     return ret;
 }

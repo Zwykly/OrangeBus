@@ -162,6 +162,7 @@ void audio_output_set_eq(audio_output_t *ao, eq_processor_t *eq)
 
 void audio_output_switch_a2dp(audio_output_t *ao)
 {
+    if (!ao) return;
     if (!ao->is_a2dp_mode || !ao->initialized || ao->rate != 44100) {
         i2s_configure(ao, 44100);
     }
@@ -169,6 +170,7 @@ void audio_output_switch_a2dp(audio_output_t *ao)
 
 void audio_output_switch_sco(audio_output_t *ao, bool msbc)
 {
+    if (!ao) return;
     uint32_t rate = msbc ? 16000 : 8000;
     if (!ao->is_a2dp_mode && ao->initialized && ao->rate == rate) return;
     i2s_configure(ao, rate);
