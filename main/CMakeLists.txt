@@ -1,6 +1,7 @@
 idf_component_register(
 SRCS
-    "orangebus.c"
+    "main.c"
+    "app/app.c"
     "ibus/ibus_driver.c"
     "ibus/ibus_protocol.c"
     "ibus/ibus_debug.c"
@@ -21,4 +22,4 @@ SRCS
     "comfort/comfort.c"
     "cli/cli.c"
 PRIV_REQUIRES bt nvs_flash driver esp_driver_gpio esp_driver_i2s esp_driver_uart
-INCLUDE_DIRS "." "board" "common" "ibus" "bt" "audio" "ui" "emulator" "comfort" "cli")
+INCLUDE_DIRS "." "app" "board" "common" "ibus" "bt" "audio" "ui" "emulator" "comfort" "cli")
