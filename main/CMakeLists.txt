@@ -11,6 +11,7 @@ SRCS
     "bt/avrcp_controller.c"
     "bt/hfp_client.c"
     "bt/spp_server.c"
+    "bt/spp_commands.c"
     "audio/audio_output.c"
     "audio/eq_processor.c"
     "ui/ui_bmbt.c"
