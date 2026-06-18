@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
-#include "bluebus.h"
+#include "orangebus.h"
 
 ui_mid_t *ui_mid_create(ibus_t *ibus, ibus_config_t *config);
 void ui_mid_destroy(ui_mid_t *ui);

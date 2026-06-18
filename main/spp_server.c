@@ -16,7 +16,7 @@
 #include "freertos/task.h"
 
 #define TAG "SPP"
-#define SPP_SERVER_NAME "BMW_BlueBus_SPP"
+#define SPP_SERVER_NAME "BMW_OrangeBus_SPP"
 #define SPP_MAX_CMD 256
 
 struct spp_server_t {
@@ -89,10 +89,10 @@ static void handle_eq_cmd(spp_server_t *spp, const char *cmd)
 static const char *ui_mode_str(uint8_t mode)
 {
     switch (mode) {
-    case BLUEBUS_UI_MODE_CD53: return "CD53";
-    case BLUEBUS_UI_MODE_BMBT: return "BMBT";
-    case BLUEBUS_UI_MODE_MID:  return "MID";
-    case BLUEBUS_UI_MODE_MIR:  return "MIR";
+    case ORANGEBUS_UI_MODE_CD53: return "CD53";
+    case ORANGEBUS_UI_MODE_BMBT: return "BMBT";
+    case ORANGEBUS_UI_MODE_MID:  return "MID";
+    case ORANGEBUS_UI_MODE_MIR:  return "MIR";
     default: return "UNKNOWN";
     }
 }
@@ -138,8 +138,8 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
 		send_response(spp, "OK:CDC_STOP\r\n");
 	} else if (strncmp(cmd, "IBUS:CONFIG:UI:", 15) == 0) {
 		uint8_t mode = (uint8_t)atoi(cmd + 15);
-		if (mode != BLUEBUS_UI_MODE_CD53 && mode != BLUEBUS_UI_MODE_BMBT
-			&& mode != BLUEBUS_UI_MODE_MID && mode != BLUEBUS_UI_MODE_MIR) {
+		if (mode != ORANGEBUS_UI_MODE_CD53 && mode != ORANGEBUS_UI_MODE_BMBT
+			&& mode != ORANGEBUS_UI_MODE_MID && mode != ORANGEBUS_UI_MODE_MIR) {
 			send_response(spp, "ERR\r\n");
 		} else {
 			ibus_config_set(spp->config, "ui_mode", mode);

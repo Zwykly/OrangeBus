@@ -22,11 +22,11 @@ struct avrcp_controller_t {
     TaskHandle_t worker_task;
     TickType_t last_cmd_tick;
     uint32_t txn_count;
-    bluebus_metadata_t metadata;
+    orangebus_metadata_t metadata;
     uint8_t meta_field_count;
     TimerHandle_t meta_timer;
     bool meta_requesting;
-    bluebus_a2dp_state_t *a2dp_state_ref;
+    orangebus_a2dp_state_t *a2dp_state_ref;
 };
 
 static avrcp_controller_t *s_instance = NULL;
@@ -182,9 +182,9 @@ static void avrcp_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *pa
         } else if (param->change_ntf.event_id == ESP_AVRC_RN_PLAY_STATUS_CHANGE) {
             esp_avrc_playback_stat_t play_status = param->change_ntf.event_parameter.playback;
             if (play_status == ESP_AVRC_PLAYBACK_PLAYING && ac->a2dp_state_ref) {
-                *ac->a2dp_state_ref = BLUEBUS_A2DP_PLAYING;
+                *ac->a2dp_state_ref = ORANGEBUS_A2DP_PLAYING;
             } else if (play_status == ESP_AVRC_PLAYBACK_PAUSED && ac->a2dp_state_ref) {
-                *ac->a2dp_state_ref = BLUEBUS_A2DP_PAUSED;
+                *ac->a2dp_state_ref = ORANGEBUS_A2DP_PAUSED;
             }
             ESP_LOGI(TAG, "Play status: %d", play_status);
             esp_avrc_ct_send_register_notification_cmd(next_txn_label(ac), ESP_AVRC_RN_PLAY_STATUS_CHANGE, 0);
@@ -239,17 +239,17 @@ void avrcp_controller_request_metadata(avrcp_controller_t *ac)
     if (ac) request_metadata_impl(ac);
 }
 
-const bluebus_metadata_t *avrcp_controller_get_metadata(const avrcp_controller_t *ac)
+const orangebus_metadata_t *avrcp_controller_get_metadata(const avrcp_controller_t *ac)
 {
     return ac ? &ac->metadata : NULL;
 }
 
-void avrcp_controller_set_a2dp_state_ref(avrcp_controller_t *ac, bluebus_a2dp_state_t *ref)
+void avrcp_controller_set_a2dp_state_ref(avrcp_controller_t *ac, orangebus_a2dp_state_t *ref)
 {
     if (ac) ac->a2dp_state_ref = ref;
 }
 
-bluebus_a2dp_state_t *avrcp_controller_get_a2dp_state_ref(avrcp_controller_t *ac)
+orangebus_a2dp_state_t *avrcp_controller_get_a2dp_state_ref(avrcp_controller_t *ac)
 {
     return ac ? ac->a2dp_state_ref : NULL;
 }

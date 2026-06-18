@@ -15,7 +15,7 @@ ibus_config_t *config;
 bool ignitionOn;
 bool active;
 uint32_t lastMetaTime;
-char displayText[BLUEBUS_IBUS_MIR_MAX_CHARS + 1];
+char displayText[ORANGEBUS_IBUS_MIR_MAX_CHARS + 1];
 };
 
 ui_mir_t *ui_mir_create(ibus_t *ibus, ibus_config_t *config)
@@ -56,7 +56,7 @@ void ui_mir_show_title(ui_mir_t *ui, const char *text)
 {
 	if (!ui || !text) return;
 	uint8_t len = strlen(text);
-	if (len > BLUEBUS_IBUS_MIR_MAX_CHARS) len = BLUEBUS_IBUS_MIR_MAX_CHARS;
+	if (len > ORANGEBUS_IBUS_MIR_MAX_CHARS) len = ORANGEBUS_IBUS_MIR_MAX_CHARS;
 	memcpy(ui->displayText, text, len);
 	ui->displayText[len] = '\0';
 	if (ui->active) {

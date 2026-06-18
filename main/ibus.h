@@ -4,13 +4,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
-#include "bluebus.h"
+#include "orangebus.h"
 
 ibus_t *ibus_create(ibus_config_t *config);
 void ibus_destroy(ibus_t *ibus);
 esp_err_t ibus_init(ibus_t *ibus);
 void ibus_process(ibus_t *ibus);
-void ibus_register_callback(ibus_t *ibus, bluebus_ibus_event_t event, bluebus_ibus_cb_t cb);
+void ibus_register_callback(ibus_t *ibus, orangebus_ibus_event_t event, orangebus_ibus_cb_t cb);
 void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t dataLen);
 void ibus_send_cdc_status(ibus_t *ibus, uint8_t status, uint8_t function);
 void ibus_send_tel_status(ibus_t *ibus, uint8_t status);

@@ -12,7 +12,7 @@
 #define TAG "HFP_CLIENT"
 
 struct hfp_client_t {
-    bluebus_hfp_state_t state;
+    orangebus_hfp_state_t state;
     esp_bd_addr_t peer_bda;
     bool sco_open;
     bool sco_is_msbc;
@@ -52,12 +52,12 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
         esp_hf_client_connection_state_t state = param->conn_stat.state;
         if (state == ESP_HF_CLIENT_CONNECTION_STATE_CONNECTED ||
             state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
-            hf->state = BLUEBUS_HFP_CONNECTED;
+            hf->state = ORANGEBUS_HFP_CONNECTED;
             memcpy(hf->peer_bda, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
             ESP_LOGI(TAG, "HFP Connected");
         } else if (state == ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED) {
             hf->sco_open = false;
-            hf->state = BLUEBUS_HFP_IDLE;
+            hf->state = ORANGEBUS_HFP_IDLE;
             ESP_LOGI(TAG, "HFP Disconnected");
         }
         break;
@@ -67,19 +67,19 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
         if (audio_state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
             hf->sco_open = true;
             hf->sco_is_msbc = true;
-            hf->state = BLUEBUS_HFP_AUDIO_OPEN;
+            hf->state = ORANGEBUS_HFP_AUDIO_OPEN;
             audio_output_switch_sco(hf->audio, true);
             ESP_LOGI(TAG, "SCO Audio Open (mSBC 16kHz)");
         } else if (audio_state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
             hf->sco_open = true;
             hf->sco_is_msbc = false;
-            hf->state = BLUEBUS_HFP_AUDIO_OPEN;
+            hf->state = ORANGEBUS_HFP_AUDIO_OPEN;
             audio_output_switch_sco(hf->audio, false);
             ESP_LOGI(TAG, "SCO Audio Open (CVSD 8kHz)");
         } else if (audio_state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
             hf->sco_open = false;
-            if (hf->state == BLUEBUS_HFP_ACTIVE || hf->state == BLUEBUS_HFP_AUDIO_OPEN) {
-                hf->state = BLUEBUS_HFP_CONNECTED;
+            if (hf->state == ORANGEBUS_HFP_ACTIVE || hf->state == ORANGEBUS_HFP_AUDIO_OPEN) {
+                hf->state = ORANGEBUS_HFP_CONNECTED;
             }
             ESP_LOGI(TAG, "SCO Audio Closed");
         }
@@ -87,10 +87,10 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
     }
     case ESP_HF_CLIENT_RING_IND_EVT:
         ESP_LOGI(TAG, "HFP Ring!");
-        if (hf->state == BLUEBUS_HFP_CONNECTED || hf->state == BLUEBUS_HFP_AUDIO_OPEN) {
-            hf->state = BLUEBUS_HFP_INCOMING;
+        if (hf->state == ORANGEBUS_HFP_CONNECTED || hf->state == ORANGEBUS_HFP_AUDIO_OPEN) {
+            hf->state = ORANGEBUS_HFP_INCOMING;
             esp_hf_client_connect_audio(hf->peer_bda);
-            if (a2dp_sink_get_state(hf->a2dp) == BLUEBUS_A2DP_PLAYING) {
+            if (a2dp_sink_get_state(hf->a2dp) == ORANGEBUS_A2DP_PLAYING) {
                 hf->a2dp_was_playing = true;
                 avrcp_controller_send_passthrough(hf->avrcp, ESP_AVRC_PT_CMD_PAUSE);
             } else {
@@ -110,18 +110,18 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
     case ESP_HF_CLIENT_CIND_CALL_SETUP_EVT: {
         esp_hf_call_setup_status_t cs = param->call_setup.status;
         if (cs == ESP_HF_CALL_SETUP_STATUS_INCOMING) {
-            hf->state = BLUEBUS_HFP_INCOMING;
+            hf->state = ORANGEBUS_HFP_INCOMING;
         } else if (cs == ESP_HF_CALL_SETUP_STATUS_OUTGOING_DIALING ||
                    cs == ESP_HF_CALL_SETUP_STATUS_OUTGOING_ALERTING) {
-            hf->state = BLUEBUS_HFP_OUTGOING;
+            hf->state = ORANGEBUS_HFP_OUTGOING;
             esp_hf_client_connect_audio(hf->peer_bda);
-            if (a2dp_sink_get_state(hf->a2dp) == BLUEBUS_A2DP_PLAYING) {
+            if (a2dp_sink_get_state(hf->a2dp) == ORANGEBUS_A2DP_PLAYING) {
                 hf->a2dp_was_playing = true;
                 avrcp_controller_send_passthrough(hf->avrcp, ESP_AVRC_PT_CMD_PAUSE);
             }
         } else if (cs == ESP_HF_CALL_SETUP_STATUS_IDLE) {
-            if (hf->state == BLUEBUS_HFP_INCOMING || hf->state == BLUEBUS_HFP_OUTGOING) {
-                hf->state = BLUEBUS_HFP_CONNECTED;
+            if (hf->state == ORANGEBUS_HFP_INCOMING || hf->state == ORANGEBUS_HFP_OUTGOING) {
+                hf->state = ORANGEBUS_HFP_CONNECTED;
             }
         }
         break;
@@ -130,20 +130,20 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
         if (param->call.status == ESP_HF_CALL_STATUS_NO_CALLS) {
             hf->sco_open = false;
             hf->caller_id[0] = '\0';
-            if (hf->state == BLUEBUS_HFP_ACTIVE || hf->state == BLUEBUS_HFP_AUDIO_OPEN) {
+            if (hf->state == ORANGEBUS_HFP_ACTIVE || hf->state == ORANGEBUS_HFP_AUDIO_OPEN) {
                 esp_hf_client_disconnect_audio(hf->peer_bda);
-                hf->state = BLUEBUS_HFP_CONNECTED;
+                hf->state = ORANGEBUS_HFP_CONNECTED;
                 audio_output_switch_a2dp(hf->audio);
             }
-            if (hf->a2dp_was_playing && a2dp_sink_get_state(hf->a2dp) >= BLUEBUS_A2DP_CONNECTED) {
+            if (hf->a2dp_was_playing && a2dp_sink_get_state(hf->a2dp) >= ORANGEBUS_A2DP_CONNECTED) {
                 audio_output_switch_a2dp(hf->audio);
                 avrcp_controller_send_passthrough(hf->avrcp, ESP_AVRC_PT_CMD_PLAY);
                 hf->a2dp_was_playing = false;
             }
             ESP_LOGI(TAG, "Call ended");
         } else if (param->call.status == ESP_HF_CALL_STATUS_CALL_IN_PROGRESS) {
-            if (hf->state == BLUEBUS_HFP_INCOMING || hf->state == BLUEBUS_HFP_OUTGOING) {
-                hf->state = BLUEBUS_HFP_ACTIVE;
+            if (hf->state == ORANGEBUS_HFP_INCOMING || hf->state == ORANGEBUS_HFP_OUTGOING) {
+                hf->state = ORANGEBUS_HFP_ACTIVE;
                 if (!hf->sco_open) {
                     esp_hf_client_connect_audio(hf->peer_bda);
                 }
@@ -181,24 +181,24 @@ esp_err_t hfp_client_init(hfp_client_t *hf)
     return ESP_OK;
 }
 
-bluebus_hfp_state_t hfp_client_get_state(const hfp_client_t *hf)
+orangebus_hfp_state_t hfp_client_get_state(const hfp_client_t *hf)
 {
-    return hf ? hf->state : BLUEBUS_HFP_IDLE;
+    return hf ? hf->state : ORANGEBUS_HFP_IDLE;
 }
 
-bluebus_hfp_state_t *hfp_client_get_state_ptr(hfp_client_t *hf)
+orangebus_hfp_state_t *hfp_client_get_state_ptr(hfp_client_t *hf)
 {
     return hf ? &hf->state : NULL;
 }
 
-const char *hfp_client_state_str(bluebus_hfp_state_t state)
+const char *hfp_client_state_str(orangebus_hfp_state_t state)
 {
     switch (state) {
-    case BLUEBUS_HFP_ACTIVE:     return "ACTIVE";
-    case BLUEBUS_HFP_INCOMING:   return "INCOMING";
-    case BLUEBUS_HFP_OUTGOING:   return "OUTGOING";
-    case BLUEBUS_HFP_AUDIO_OPEN: return "SCO OPEN";
-    case BLUEBUS_HFP_CONNECTED:  return "CONNECTED";
+    case ORANGEBUS_HFP_ACTIVE:     return "ACTIVE";
+    case ORANGEBUS_HFP_INCOMING:   return "INCOMING";
+    case ORANGEBUS_HFP_OUTGOING:   return "OUTGOING";
+    case ORANGEBUS_HFP_AUDIO_OPEN: return "SCO OPEN";
+    case ORANGEBUS_HFP_CONNECTED:  return "CONNECTED";
     default:                     return "IDLE";
     }
 }
@@ -215,7 +215,7 @@ bool hfp_client_is_vra_active(const hfp_client_t *hf)
 
 void hfp_client_answer(hfp_client_t *hf)
 {
-    if (hf && hf->state == BLUEBUS_HFP_INCOMING) {
+    if (hf && hf->state == ORANGEBUS_HFP_INCOMING) {
         esp_hf_client_answer_call();
     }
 }
@@ -223,23 +223,23 @@ void hfp_client_answer(hfp_client_t *hf)
 void hfp_client_reject(hfp_client_t *hf)
 {
     if (!hf) return;
-    if (hf->state == BLUEBUS_HFP_INCOMING) {
+    if (hf->state == ORANGEBUS_HFP_INCOMING) {
         esp_hf_client_reject_call();
-    } else if (hf->state == BLUEBUS_HFP_ACTIVE || hf->state == BLUEBUS_HFP_OUTGOING) {
+    } else if (hf->state == ORANGEBUS_HFP_ACTIVE || hf->state == ORANGEBUS_HFP_OUTGOING) {
         esp_hf_client_reject_call();
     }
 }
 
 void hfp_client_redial(hfp_client_t *hf)
 {
-    if (hf && hf->state >= BLUEBUS_HFP_CONNECTED) {
+    if (hf && hf->state >= ORANGEBUS_HFP_CONNECTED) {
         esp_hf_client_dial(NULL);
     }
 }
 
 void hfp_client_toggle_voice_recognition(hfp_client_t *hf)
 {
-    if (!hf || hf->state < BLUEBUS_HFP_CONNECTED) return;
+    if (!hf || hf->state < ORANGEBUS_HFP_CONNECTED) return;
     if (hf->vra_active) {
         esp_hf_client_stop_voice_recognition();
     } else {

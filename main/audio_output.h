@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
-#include "bluebus.h"
+#include "orangebus.h"
 
 audio_output_t *audio_output_create(void);
 void audio_output_destroy(audio_output_t *ao);

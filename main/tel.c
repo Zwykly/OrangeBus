@@ -26,11 +26,11 @@ static void tel_send_status(tel_t *tel)
 {
     uint8_t status;
     if (tel->callActive) {
-        status = BLUEBUS_IBUS_TEL_STATUS_POWER_CALL;
+        status = ORANGEBUS_IBUS_TEL_STATUS_POWER_CALL;
     } else if (tel->connected) {
-        status = BLUEBUS_IBUS_TEL_STATUS_POWER_HF;
+        status = ORANGEBUS_IBUS_TEL_STATUS_POWER_HF;
     } else {
-        status = BLUEBUS_IBUS_TEL_STATUS_NONE;
+        status = ORANGEBUS_IBUS_TEL_STATUS_NONE;
     }
     ibus_send_tel_status(tel->ibus, status);
     tel->lastStatusTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -40,13 +40,13 @@ static void tel_send_led(tel_t *tel)
 {
     uint8_t led;
     if (tel->callActive) {
-        led = BLUEBUS_IBUS_TEL_LED_GREEN_ON;
+        led = ORANGEBUS_IBUS_TEL_LED_GREEN_ON;
     } else if (tel->callIncoming) {
-        led = BLUEBUS_IBUS_TEL_LED_GREEN_BLINK;
+        led = ORANGEBUS_IBUS_TEL_LED_GREEN_BLINK;
     } else if (tel->connected) {
-        led = BLUEBUS_IBUS_TEL_LED_GREEN_ON;
+        led = ORANGEBUS_IBUS_TEL_LED_GREEN_ON;
     } else {
-        led = BLUEBUS_IBUS_TEL_LED_RED_ON;
+        led = ORANGEBUS_IBUS_TEL_LED_RED_ON;
     }
     ibus_send_tel_led_status(tel->ibus, led);
     tel->lastLEDTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -56,11 +56,11 @@ static void tel_send_caller_id(tel_t *tel)
 {
     if (strlen(tel->callerId) == 0) return;
     if (tel->callActive) {
-        ibus_send_tel_title_text(tel->ibus, BLUEBUS_IBUS_TEL_TITLE_ON_CALL,
-            tel->callerId, BLUEBUS_IBUS_TEL_TITLE_OPT_SET);
+        ibus_send_tel_title_text(tel->ibus, ORANGEBUS_IBUS_TEL_TITLE_ON_CALL,
+            tel->callerId, ORANGEBUS_IBUS_TEL_TITLE_OPT_SET);
     } else if (tel->callIncoming) {
-        ibus_send_tel_title_text(tel->ibus, BLUEBUS_IBUS_TEL_TITLE_DEFAULT,
-            tel->callerId, BLUEBUS_IBUS_TEL_TITLE_OPT_SET);
+        ibus_send_tel_title_text(tel->ibus, ORANGEBUS_IBUS_TEL_TITLE_DEFAULT,
+            tel->callerId, ORANGEBUS_IBUS_TEL_TITLE_OPT_SET);
     }
 }
 

@@ -52,11 +52,11 @@ static bool i2s_configure(audio_output_t *ao, uint32_t rate)
     i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(rate);
     i2s_std_slot_config_t slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
     i2s_std_gpio_config_t gpio_cfg = {
-        .mclk = BLUEBUS_I2S_MCLK,
-        .bclk = BLUEBUS_I2S_BCK,
-        .ws   = BLUEBUS_I2S_WS,
-        .dout = BLUEBUS_I2S_DATA,
-        .din  = BLUEBUS_I2S_MIC_DATA,
+        .mclk = ORANGEBUS_I2S_MCLK,
+        .bclk = ORANGEBUS_I2S_BCK,
+        .ws   = ORANGEBUS_I2S_WS,
+        .dout = ORANGEBUS_I2S_DATA,
+        .din  = ORANGEBUS_I2S_MIC_DATA,
         .invert_flags = {0},
     };
 

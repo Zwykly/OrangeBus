@@ -12,11 +12,11 @@
 #define TAG "IBUS"
 
 struct ibus_t {
-    uint8_t rxBuf[BLUEBUS_IBUS_MAX_PKT];
+    uint8_t rxBuf[ORANGEBUS_IBUS_MAX_PKT];
     uint8_t rxLen;
     uint32_t rxLastByte;
-    bluebus_ibus_cb_t callbacks[BLUEBUS_IBUS_EVT_COUNT];
-    uint8_t txBuf[BLUEBUS_IBUS_MAX_PKT];
+    orangebus_ibus_cb_t callbacks[ORANGEBUS_IBUS_EVT_COUNT];
+    uint8_t txBuf[ORANGEBUS_IBUS_MAX_PKT];
     bool debugMode;
     bool uart_installed;
     ibus_config_t *config;
@@ -33,50 +33,50 @@ uint8_t ibus_crc(const uint8_t *buf, uint8_t len)
     return ck;
 }
 
-static void dispatch_event(ibus_t *ibus, bluebus_ibus_event_t event, uint8_t *data, uint8_t len)
+static void dispatch_event(ibus_t *ibus, orangebus_ibus_event_t event, uint8_t *data, uint8_t len)
 {
-    if (event < BLUEBUS_IBUS_EVT_COUNT && ibus->callbacks[event] != NULL) {
+    if (event < ORANGEBUS_IBUS_EVT_COUNT && ibus->callbacks[event] != NULL) {
         ibus->callbacks[event](data, len);
     }
 }
 
 static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
 {
-    uint8_t src = pkt[BLUEBUS_IBUS_PKT_SRC];
-    uint8_t dst = pkt[BLUEBUS_IBUS_PKT_DST];
-    uint8_t cmd = pkt[BLUEBUS_IBUS_PKT_CMD];
+    uint8_t src = pkt[ORANGEBUS_IBUS_PKT_SRC];
+    uint8_t dst = pkt[ORANGEBUS_IBUS_PKT_DST];
+    uint8_t cmd = pkt[ORANGEBUS_IBUS_PKT_CMD];
     uint8_t dataLen = len - 4;
-    uint8_t *data = &pkt[BLUEBUS_IBUS_PKT_DB1];
+    uint8_t *data = &pkt[ORANGEBUS_IBUS_PKT_DB1];
 
     ESP_LOGI(TAG, "RX: SRC=%02X DST=%02X CMD=%02X LEN=%d", src, dst, cmd, dataLen);
 
-    if (src == BLUEBUS_IBUS_DEV_RAD && cmd == BLUEBUS_IBUS_CMD_CDC_REQUEST && dst == BLUEBUS_IBUS_DEV_CDC) {
-        if (dataLen > 0 && data[0] != BLUEBUS_IBUS_CDC_CMD_GET_STATUS) {
-            dispatch_event(ibus, BLUEBUS_IBUS_EVT_CDC_BUTTON_PRESS, data, dataLen);
+    if (src == ORANGEBUS_IBUS_DEV_RAD && cmd == ORANGEBUS_IBUS_CMD_CDC_REQUEST && dst == ORANGEBUS_IBUS_DEV_CDC) {
+        if (dataLen > 0 && data[0] != ORANGEBUS_IBUS_CDC_CMD_GET_STATUS) {
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_CDC_BUTTON_PRESS, data, dataLen);
         }
-        dispatch_event(ibus, BLUEBUS_IBUS_EVT_CDC_STATUS_REQ, data, dataLen);
-    } else if (src == BLUEBUS_IBUS_DEV_RAD && cmd == BLUEBUS_IBUS_CMD_VOL_CTRL) {
-        dispatch_event(ibus, BLUEBUS_IBUS_EVT_VOLUME_CHANGE, data, dataLen);
-    } else if (src == BLUEBUS_IBUS_DEV_MFL && cmd == 0x3B) {
-        dispatch_event(ibus, BLUEBUS_IBUS_EVT_MFL_BUTTON_PRESS, data, dataLen);
-    } else if (src == BLUEBUS_IBUS_DEV_IKE && cmd == BLUEBUS_IBUS_CMD_IKE_IGN_RESP) {
-        dispatch_event(ibus, BLUEBUS_IBUS_EVT_IGNITION_STATUS, data, dataLen);
-    } else if (src == BLUEBUS_IBUS_DEV_MID) {
-        if (cmd == BLUEBUS_IBUS_MID_BUTTON_PRESS) {
-            dispatch_event(ibus, BLUEBUS_IBUS_EVT_MID_BUTTON_PRESS, data, dataLen);
-        } else if (cmd == BLUEBUS_IBUS_MID_CMD_SET_MODE) {
-            dispatch_event(ibus, BLUEBUS_IBUS_EVT_MID_MODE_CHANGE, data, dataLen);
+        dispatch_event(ibus, ORANGEBUS_IBUS_EVT_CDC_STATUS_REQ, data, dataLen);
+    } else if (src == ORANGEBUS_IBUS_DEV_RAD && cmd == ORANGEBUS_IBUS_CMD_VOL_CTRL) {
+        dispatch_event(ibus, ORANGEBUS_IBUS_EVT_VOLUME_CHANGE, data, dataLen);
+    } else if (src == ORANGEBUS_IBUS_DEV_MFL && cmd == 0x3B) {
+        dispatch_event(ibus, ORANGEBUS_IBUS_EVT_MFL_BUTTON_PRESS, data, dataLen);
+    } else if (src == ORANGEBUS_IBUS_DEV_IKE && cmd == ORANGEBUS_IBUS_CMD_IKE_IGN_RESP) {
+        dispatch_event(ibus, ORANGEBUS_IBUS_EVT_IGNITION_STATUS, data, dataLen);
+    } else if (src == ORANGEBUS_IBUS_DEV_MID) {
+        if (cmd == ORANGEBUS_IBUS_MID_BUTTON_PRESS) {
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_MID_BUTTON_PRESS, data, dataLen);
+        } else if (cmd == ORANGEBUS_IBUS_MID_CMD_SET_MODE) {
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_MID_MODE_CHANGE, data, dataLen);
         }
-    } else if (src == BLUEBUS_IBUS_DEV_BMBT) {
-        dispatch_event(ibus, BLUEBUS_IBUS_EVT_BMBT_BUTTON_PRESS, data, dataLen);
-    } else if (src == BLUEBUS_IBUS_DEV_GT) {
+    } else if (src == ORANGEBUS_IBUS_DEV_BMBT) {
+        dispatch_event(ibus, ORANGEBUS_IBUS_EVT_BMBT_BUTTON_PRESS, data, dataLen);
+    } else if (src == ORANGEBUS_IBUS_DEV_GT) {
         if (cmd == 0x31) {
-            dispatch_event(ibus, BLUEBUS_IBUS_EVT_GT_MENU_SELECT, data, dataLen);
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_GT_MENU_SELECT, data, dataLen);
         } else if (cmd == 0x20) {
-            dispatch_event(ibus, BLUEBUS_IBUS_EVT_GT_CHANGE_UI_REQ, data, dataLen);
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_GT_CHANGE_UI_REQ, data, dataLen);
         }
-    } else if (src == BLUEBUS_IBUS_DEV_PDC) {
-        dispatch_event(ibus, BLUEBUS_IBUS_EVT_PDC_STATUS, data, dataLen);
+    } else if (src == ORANGEBUS_IBUS_DEV_PDC) {
+        dispatch_event(ibus, ORANGEBUS_IBUS_EVT_PDC_STATUS, data, dataLen);
     }
 }
 
@@ -92,7 +92,7 @@ void ibus_destroy(ibus_t *ibus)
 {
     if (ibus) {
         if (ibus->uart_installed) {
-            uart_driver_delete(BLUEBUS_IBUS_UART_NUM);
+            uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
         }
         free(ibus);
     }
@@ -103,7 +103,7 @@ esp_err_t ibus_init(ibus_t *ibus)
     if (!ibus) return ESP_ERR_INVALID_ARG;
 
     uart_config_t uart_config = {
-        .baud_rate = BLUEBUS_IBUS_BAUD,
+        .baud_rate = ORANGEBUS_IBUS_BAUD,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_EVEN,
         .stop_bits = UART_STOP_BITS_1,
@@ -111,8 +111,8 @@ esp_err_t ibus_init(ibus_t *ibus)
         .source_clk = UART_SCLK_DEFAULT,
     };
 
-    esp_err_t ret = uart_driver_install(BLUEBUS_IBUS_UART_NUM,
-        BLUEBUS_IBUS_RX_BUF_SIZE, BLUEBUS_IBUS_TX_BUF_SIZE, 0, NULL, 0);
+    esp_err_t ret = uart_driver_install(ORANGEBUS_IBUS_UART_NUM,
+        ORANGEBUS_IBUS_RX_BUF_SIZE, ORANGEBUS_IBUS_TX_BUF_SIZE, 0, NULL, 0);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "UART driver install failed: %s. I-BUS unavailable, continuing...", esp_err_to_name(ret));
         ibus->uart_installed = false;
@@ -121,20 +121,20 @@ esp_err_t ibus_init(ibus_t *ibus)
         return ESP_OK;
     }
 
-    ret = uart_param_config(BLUEBUS_IBUS_UART_NUM, &uart_config);
+    ret = uart_param_config(ORANGEBUS_IBUS_UART_NUM, &uart_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART param config failed: %s", esp_err_to_name(ret));
-        uart_driver_delete(BLUEBUS_IBUS_UART_NUM);
+        uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
         ibus->uart_installed = false;
         return ESP_OK;
     }
 
-    ret = uart_set_pin(BLUEBUS_IBUS_UART_NUM,
-        BLUEBUS_IBUS_TX, BLUEBUS_IBUS_RX,
+    ret = uart_set_pin(ORANGEBUS_IBUS_UART_NUM,
+        ORANGEBUS_IBUS_TX, ORANGEBUS_IBUS_RX,
         UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART set pin failed: %s", esp_err_to_name(ret));
-        uart_driver_delete(BLUEBUS_IBUS_UART_NUM);
+        uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
         ibus->uart_installed = false;
         return ESP_OK;
     }
@@ -145,13 +145,13 @@ esp_err_t ibus_init(ibus_t *ibus)
     ibus->debugMode = false;
     s_instance = ibus;
     ESP_LOGI(TAG, "I-BUS UART initialized (9600 8E1, TX=%d, RX=%d, debug=%s)",
-        BLUEBUS_IBUS_TX, BLUEBUS_IBUS_RX, ibus->debugMode ? "ON" : "OFF");
+        ORANGEBUS_IBUS_TX, ORANGEBUS_IBUS_RX, ibus->debugMode ? "ON" : "OFF");
     return ESP_OK;
 }
 
-void ibus_register_callback(ibus_t *ibus, bluebus_ibus_event_t event, bluebus_ibus_cb_t cb)
+void ibus_register_callback(ibus_t *ibus, orangebus_ibus_event_t event, orangebus_ibus_cb_t cb)
 {
-    if (ibus && event < BLUEBUS_IBUS_EVT_COUNT) {
+    if (ibus && event < ORANGEBUS_IBUS_EVT_COUNT) {
         ibus->callbacks[event] = cb;
     }
 }
@@ -159,12 +159,12 @@ void ibus_register_callback(ibus_t *ibus, bluebus_ibus_event_t event, bluebus_ib
 static const char *describe_src(uint8_t src)
 {
     switch (src) {
-    case BLUEBUS_IBUS_DEV_CDC: return "CDC";
-    case BLUEBUS_IBUS_DEV_TEL: return "TEL";
-    case BLUEBUS_IBUS_DEV_RAD: return "RAD";
-    case BLUEBUS_IBUS_DEV_GT:  return "GT";
-    case BLUEBUS_IBUS_DEV_MID: return "MID";
-    case BLUEBUS_IBUS_DEV_DSP: return "DSP";
+    case ORANGEBUS_IBUS_DEV_CDC: return "CDC";
+    case ORANGEBUS_IBUS_DEV_TEL: return "TEL";
+    case ORANGEBUS_IBUS_DEV_RAD: return "RAD";
+    case ORANGEBUS_IBUS_DEV_GT:  return "GT";
+    case ORANGEBUS_IBUS_DEV_MID: return "MID";
+    case ORANGEBUS_IBUS_DEV_DSP: return "DSP";
     default: return "???";
     }
 }
@@ -172,43 +172,43 @@ static const char *describe_src(uint8_t src)
 static const char *describe_dst(uint8_t dst)
 {
     switch (dst) {
-    case BLUEBUS_IBUS_DEV_RAD:  return "RAD";
-    case BLUEBUS_IBUS_DEV_MID:  return "MID";
-    case BLUEBUS_IBUS_DEV_BMBT: return "BMBT";
-    case BLUEBUS_IBUS_DEV_GT:   return "GT";
-    case BLUEBUS_IBUS_DEV_DSP:  return "DSP";
-    case BLUEBUS_IBUS_DEV_IKE:  return "IKE";
-    case BLUEBUS_IBUS_DEV_LCM:  return "LCM";
-    case BLUEBUS_IBUS_DEV_GM:   return "GM";
+    case ORANGEBUS_IBUS_DEV_RAD:  return "RAD";
+    case ORANGEBUS_IBUS_DEV_MID:  return "MID";
+    case ORANGEBUS_IBUS_DEV_BMBT: return "BMBT";
+    case ORANGEBUS_IBUS_DEV_GT:   return "GT";
+    case ORANGEBUS_IBUS_DEV_DSP:  return "DSP";
+    case ORANGEBUS_IBUS_DEV_IKE:  return "IKE";
+    case ORANGEBUS_IBUS_DEV_LCM:  return "LCM";
+    case ORANGEBUS_IBUS_DEV_GM:   return "GM";
     default: return "???";
     }
 }
 
 static const char *describe_cmd(uint8_t src, uint8_t dst, uint8_t cmd)
 {
-    if (src == BLUEBUS_IBUS_DEV_CDC && dst == BLUEBUS_IBUS_DEV_RAD && cmd == BLUEBUS_IBUS_CMD_CDC_RESPONSE)
+    if (src == ORANGEBUS_IBUS_DEV_CDC && dst == ORANGEBUS_IBUS_DEV_RAD && cmd == ORANGEBUS_IBUS_CMD_CDC_RESPONSE)
         return "CDC_STATUS";
-    if (src == BLUEBUS_IBUS_DEV_TEL && cmd == BLUEBUS_IBUS_TEL_CMD_STATUS)
+    if (src == ORANGEBUS_IBUS_DEV_TEL && cmd == ORANGEBUS_IBUS_TEL_CMD_STATUS)
         return "TEL_STATUS";
-    if (src == BLUEBUS_IBUS_DEV_TEL && cmd == BLUEBUS_IBUS_TEL_CMD_LED_STATUS)
+    if (src == ORANGEBUS_IBUS_DEV_TEL && cmd == ORANGEBUS_IBUS_TEL_CMD_LED_STATUS)
         return "TEL_LED";
-    if (src == BLUEBUS_IBUS_DEV_TEL && cmd == BLUEBUS_IBUS_TEL_CMD_TITLE_TEXT)
+    if (src == ORANGEBUS_IBUS_DEV_TEL && cmd == ORANGEBUS_IBUS_TEL_CMD_TITLE_TEXT)
         return "TEL_TITLE";
-    if (src == BLUEBUS_IBUS_DEV_MID && cmd == BLUEBUS_IBUS_MID_CMD_SET_MODE)
+    if (src == ORANGEBUS_IBUS_DEV_MID && cmd == ORANGEBUS_IBUS_MID_CMD_SET_MODE)
         return "MID_SET_MODE";
-    if (src == BLUEBUS_IBUS_DEV_MID && dst == BLUEBUS_IBUS_DEV_RAD)
+    if (src == ORANGEBUS_IBUS_DEV_MID && dst == ORANGEBUS_IBUS_DEV_RAD)
         return "MID_TEXT";
-    if (src == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_WRITE_TITLE)
+    if (src == ORANGEBUS_IBUS_DEV_GT && cmd == ORANGEBUS_IBUS_CMD_GT_WRITE_TITLE)
         return "GT_TITLE";
-    if (src == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_WRITE_ZONE)
+    if (src == ORANGEBUS_IBUS_DEV_GT && cmd == ORANGEBUS_IBUS_CMD_GT_WRITE_ZONE)
         return "GT_ZONE";
-    if (src == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_WRITE_INDEX)
+    if (src == ORANGEBUS_IBUS_DEV_GT && cmd == ORANGEBUS_IBUS_CMD_GT_WRITE_INDEX)
         return "GT_INDEX";
-    if (src == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_CLEAR)
+    if (src == ORANGEBUS_IBUS_DEV_GT && cmd == ORANGEBUS_IBUS_CMD_GT_CLEAR)
         return "GT_CLEAR";
-    if (src == BLUEBUS_IBUS_DEV_RAD && dst == BLUEBUS_IBUS_DEV_GT && cmd == BLUEBUS_IBUS_CMD_GT_WRITE_TITLE)
+    if (src == ORANGEBUS_IBUS_DEV_RAD && dst == ORANGEBUS_IBUS_DEV_GT && cmd == ORANGEBUS_IBUS_CMD_GT_WRITE_TITLE)
         return "RAD->GT_TITLE(BUS_NAV)";
-    if (src == BLUEBUS_IBUS_DEV_RAD && dst == BLUEBUS_IBUS_DEV_DSP && cmd == BLUEBUS_IBUS_DSP_CMD_CONFIG_SET)
+    if (src == ORANGEBUS_IBUS_DEV_RAD && dst == ORANGEBUS_IBUS_DEV_DSP && cmd == ORANGEBUS_IBUS_DSP_CMD_CONFIG_SET)
         return "DSP_CONFIG";
     return "OTHER";
 }
@@ -216,7 +216,7 @@ static const char *describe_cmd(uint8_t src, uint8_t dst, uint8_t cmd)
 static void send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
 {
     if (ibus->debugMode) {
-        char hex[BLUEBUS_IBUS_MAX_PKT * 3 + 1];
+        char hex[ORANGEBUS_IBUS_MAX_PKT * 3 + 1];
         int pos = 0;
         for (uint8_t i = 0; i < len; i++) {
             pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", buf[i]);
@@ -230,8 +230,8 @@ static void send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
         return;
     }
     if (!ibus->uart_installed) return;
-    uart_write_bytes(BLUEBUS_IBUS_UART_NUM, buf, len);
-    uart_wait_tx_done(BLUEBUS_IBUS_UART_NUM, pdMS_TO_TICKS(50));
+    uart_write_bytes(ORANGEBUS_IBUS_UART_NUM, buf, len);
+    uart_wait_tx_done(ORANGEBUS_IBUS_UART_NUM, pdMS_TO_TICKS(50));
 }
 
 void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t dataLen)
@@ -258,7 +258,7 @@ void ibus_process(ibus_t *ibus)
     if (!ibus->uart_installed) return;
     uint8_t buf[32];
     int readLen;
-    while ((readLen = uart_read_bytes(BLUEBUS_IBUS_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(10))) > 0) {
+    while ((readLen = uart_read_bytes(ORANGEBUS_IBUS_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(10))) > 0) {
         for (int i = 0; i < readLen; i++) {
             uint8_t b = buf[i];
             if (ibus->rxLen == 0) {
@@ -276,13 +276,13 @@ void ibus_process(ibus_t *ibus)
                 continue;
             }
             ibus->rxLastByte = now;
-            if (ibus->rxLen >= BLUEBUS_IBUS_MAX_PKT) {
+            if (ibus->rxLen >= ORANGEBUS_IBUS_MAX_PKT) {
                 ibus->rxLen = 0;
                 continue;
             }
             ibus->rxBuf[ibus->rxLen++] = b;
             if (ibus->rxLen >= 3) {
-                uint8_t pktLen = ibus->rxBuf[BLUEBUS_IBUS_PKT_LEN];
+                uint8_t pktLen = ibus->rxBuf[ORANGEBUS_IBUS_PKT_LEN];
                 uint8_t expectedTotal = pktLen + 2;
                 if (ibus->rxLen >= expectedTotal) {
                     uint8_t calcCrc = ibus_crc(ibus->rxBuf, expectedTotal - 1);
@@ -298,25 +298,25 @@ void ibus_process(ibus_t *ibus)
 
 void ibus_send_cdc_status(ibus_t *ibus, uint8_t status, uint8_t function)
 {
-    uint8_t data[] = {0x00, status, function, 0x00, 0x01, 0x00, 0x00, BLUEBUS_IBUS_CDC_DISC_ALL, 0x00, 0x00, 0x00};
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_CDC, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_CMD_CDC_RESPONSE, data, sizeof(data));
+    uint8_t data[] = {0x00, status, function, 0x00, 0x01, 0x00, 0x00, ORANGEBUS_IBUS_CDC_DISC_ALL, 0x00, 0x00, 0x00};
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_CDC, ORANGEBUS_IBUS_DEV_RAD, ORANGEBUS_IBUS_CMD_CDC_RESPONSE, data, sizeof(data));
 }
 
 void ibus_send_tel_status(ibus_t *ibus, uint8_t status)
 {
     uint8_t data[] = {status};
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_TEL, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_TEL_CMD_STATUS, data, sizeof(data));
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_TEL, ORANGEBUS_IBUS_DEV_RAD, ORANGEBUS_IBUS_TEL_CMD_STATUS, data, sizeof(data));
 }
 
 void ibus_send_tel_led_status(ibus_t *ibus, uint8_t ledStatus)
 {
     uint8_t data[] = {0x00, 0x00, ledStatus};
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_TEL, BLUEBUS_IBUS_DEV_MID, BLUEBUS_IBUS_TEL_CMD_LED_STATUS, data, sizeof(data));
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_TEL, ORANGEBUS_IBUS_DEV_MID, ORANGEBUS_IBUS_TEL_CMD_LED_STATUS, data, sizeof(data));
 }
 
 void ibus_send_tel_title_text(ibus_t *ibus, uint8_t titleType, const char *text, uint8_t options)
 {
-    uint8_t buf[BLUEBUS_IBUS_MAX_PKT - 6];
+    uint8_t buf[ORANGEBUS_IBUS_MAX_PKT - 6];
     uint8_t idx = 0;
     buf[idx++] = titleType;
     buf[idx++] = options;
@@ -326,25 +326,25 @@ void ibus_send_tel_title_text(ibus_t *ibus, uint8_t titleType, const char *text,
             buf[idx++] = text[i];
         }
     }
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_TEL, BLUEBUS_IBUS_DEV_MID, BLUEBUS_IBUS_TEL_CMD_TITLE_TEXT, buf, idx);
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_TEL, ORANGEBUS_IBUS_DEV_MID, ORANGEBUS_IBUS_TEL_CMD_TITLE_TEXT, buf, idx);
 }
 
 void ibus_send_mid_text(ibus_t *ibus, uint8_t cmd, const char *text, uint8_t len)
 {
-    uint8_t buf[BLUEBUS_IBUS_MAX_PKT - 6];
+    uint8_t buf[ORANGEBUS_IBUS_MAX_PKT - 6];
     uint8_t idx = 0;
     if (text != NULL && len > 0) {
         uint8_t copyLen = len < sizeof(buf) ? len : sizeof(buf);
         memcpy(buf, text, copyLen);
         idx = copyLen;
     }
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_MID, BLUEBUS_IBUS_DEV_RAD, cmd, buf, idx);
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_MID, ORANGEBUS_IBUS_DEV_RAD, cmd, buf, idx);
 }
 
 void ibus_send_mid_set_mode(ibus_t *ibus, uint8_t mode, uint8_t type)
 {
     uint8_t data[] = {mode, type};
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_MID, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_MID_CMD_SET_MODE, data, sizeof(data));
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_MID, ORANGEBUS_IBUS_DEV_RAD, ORANGEBUS_IBUS_MID_CMD_SET_MODE, data, sizeof(data));
 }
 
 void ibus_send_gt_title(ibus_t *ibus, const char *text)
@@ -357,7 +357,7 @@ void ibus_send_gt_title(ibus_t *ibus, const char *text)
             buf[idx++] = text[i];
         }
     }
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_GT, BLUEBUS_IBUS_DEV_BMBT, BLUEBUS_IBUS_CMD_GT_WRITE_TITLE, buf, idx);
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_GT, ORANGEBUS_IBUS_DEV_BMBT, ORANGEBUS_IBUS_CMD_GT_WRITE_TITLE, buf, idx);
 }
 
 void ibus_send_gt_write_zone(ibus_t *ibus, uint8_t zone, const char *text)
@@ -372,7 +372,7 @@ void ibus_send_gt_write_zone(ibus_t *ibus, uint8_t zone, const char *text)
             buf[idx++] = text[i];
         }
     }
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_GT, BLUEBUS_IBUS_DEV_BMBT, BLUEBUS_IBUS_CMD_GT_WRITE_ZONE, buf, idx);
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_GT, ORANGEBUS_IBUS_DEV_BMBT, ORANGEBUS_IBUS_CMD_GT_WRITE_ZONE, buf, idx);
 }
 
 void ibus_send_gt_write_index(ibus_t *ibus, uint8_t index, const char *text)
@@ -387,32 +387,32 @@ void ibus_send_gt_write_index(ibus_t *ibus, uint8_t index, const char *text)
             buf[idx++] = text[i];
         }
     }
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_GT, BLUEBUS_IBUS_DEV_BMBT, BLUEBUS_IBUS_CMD_GT_WRITE_INDEX, buf, idx);
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_GT, ORANGEBUS_IBUS_DEV_BMBT, ORANGEBUS_IBUS_CMD_GT_WRITE_INDEX, buf, idx);
 }
 
 void ibus_send_gt_clear(ibus_t *ibus)
 {
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_GT, BLUEBUS_IBUS_DEV_BMBT, BLUEBUS_IBUS_CMD_GT_CLEAR, NULL, 0);
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_GT, ORANGEBUS_IBUS_DEV_BMBT, ORANGEBUS_IBUS_CMD_GT_CLEAR, NULL, 0);
 }
 
 void ibus_send_business_nav_title(ibus_t *ibus, const char *text)
 {
     if (!ibus || !text) return;
     uint8_t length = strlen(text);
-    if (length > BLUEBUS_IBUS_MIR_MAX_CHARS) {
-        length = BLUEBUS_IBUS_MIR_MAX_CHARS;
+    if (length > ORANGEBUS_IBUS_MIR_MAX_CHARS) {
+        length = ORANGEBUS_IBUS_MIR_MAX_CHARS;
     }
-    uint8_t buf[BLUEBUS_IBUS_MIR_MAX_CHARS + 3];
+    uint8_t buf[ORANGEBUS_IBUS_MIR_MAX_CHARS + 3];
     buf[0] = 0x40;
     buf[1] = 0x30;
     memcpy(buf + 2, text, length);
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_DEV_GT, BLUEBUS_IBUS_CMD_GT_WRITE_TITLE, buf, length + 2);
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_RAD, ORANGEBUS_IBUS_DEV_GT, ORANGEBUS_IBUS_CMD_GT_WRITE_TITLE, buf, length + 2);
 }
 
 void ibus_send_dsp_config(ibus_t *ibus, uint8_t mode)
 {
     uint8_t data[] = {mode};
-    ibus_send_packet(ibus, BLUEBUS_IBUS_DEV_RAD, BLUEBUS_IBUS_DEV_DSP, BLUEBUS_IBUS_DSP_CMD_CONFIG_SET, data, sizeof(data));
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_RAD, ORANGEBUS_IBUS_DEV_DSP, ORANGEBUS_IBUS_DSP_CMD_CONFIG_SET, data, sizeof(data));
 }
 
 bool ibus_is_debug_mode(const ibus_t *ibus)

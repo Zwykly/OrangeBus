@@ -1,4 +1,4 @@
-#include "bluebus.h"
+#include "orangebus.h"
 #include "audio_output.h"
 #include "avrcp_controller.h"
 #include "a2dp_sink.h"
@@ -23,7 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define TAG "BLUEBUS"
+#define TAG "ORANGEBUS"
 
 typedef struct {
 ibus_t *ibus;
@@ -39,8 +39,8 @@ avrcp_controller_t *avrcp;
 a2dp_sink_t *a2dp;
 hfp_client_t *hfp;
 audio_output_t *audio;
-bluebus_a2dp_state_t lastA2dpState;
-bluebus_hfp_state_t lastHfpState;
+orangebus_a2dp_state_t lastA2dpState;
+orangebus_hfp_state_t lastHfpState;
 char lastTitle[81];
 char lastArtist[81];
 volatile bool uiModeChanged;
@@ -60,24 +60,24 @@ static void on_cdc_button_press(uint8_t *data, uint8_t len)
     if (len < 1) return;
     uint8_t cmd = data[0];
     switch (cmd) {
-    case BLUEBUS_IBUS_CDC_CMD_START_PLAYING:
-        if (a2dp_sink_get_state(ic->a2dp) >= BLUEBUS_A2DP_CONNECTED) {
+    case ORANGEBUS_IBUS_CDC_CMD_START_PLAYING:
+        if (a2dp_sink_get_state(ic->a2dp) >= ORANGEBUS_A2DP_CONNECTED) {
             avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PLAY);
         }
         cdc_set_playing(ic->cdc, true);
         ui_mid_on_cdc_start(ic->uiMid);
         break;
-    case BLUEBUS_IBUS_CDC_CMD_STOP_PLAYING:
-        if (a2dp_sink_get_state(ic->a2dp) == BLUEBUS_A2DP_PLAYING) {
+    case ORANGEBUS_IBUS_CDC_CMD_STOP_PLAYING:
+        if (a2dp_sink_get_state(ic->a2dp) == ORANGEBUS_A2DP_PLAYING) {
             avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PAUSE);
         }
         cdc_set_playing(ic->cdc, false);
         ui_mid_on_cdc_stop(ic->uiMid);
         break;
-    case BLUEBUS_IBUS_CDC_CMD_CHANGE_TRACK:
+    case ORANGEBUS_IBUS_CDC_CMD_CHANGE_TRACK:
         avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_FORWARD);
         break;
-    case BLUEBUS_IBUS_CDC_CMD_CHANGE_TRACK_BL:
+    case ORANGEBUS_IBUS_CDC_CMD_CHANGE_TRACK_BL:
         avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_BACKWARD);
         break;
     default:
@@ -91,20 +91,20 @@ static void on_mfl_button(uint8_t *data, uint8_t len)
     ibus_ctx_t *ic = s_ibus_ctx;
     if (len < 1) return;
     uint8_t btn = data[0];
-    if (btn == BLUEBUS_IBUS_MFL_BTN_SPEAK) {
-        bluebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
-        if (hfpState == BLUEBUS_HFP_INCOMING) {
+    if (btn == ORANGEBUS_IBUS_MFL_BTN_SPEAK) {
+        orangebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
+        if (hfpState == ORANGEBUS_HFP_INCOMING) {
             hfp_client_answer(ic->hfp);
-        } else if (hfpState == BLUEBUS_HFP_ACTIVE) {
+        } else if (hfpState == ORANGEBUS_HFP_ACTIVE) {
             hfp_client_reject(ic->hfp);
-        } else if (hfpState == BLUEBUS_HFP_CONNECTED) {
+        } else if (hfpState == ORANGEBUS_HFP_CONNECTED) {
             hfp_client_redial(ic->hfp);
-        } else if (a2dp_sink_get_state(ic->a2dp) >= BLUEBUS_A2DP_CONNECTED && hfpState < BLUEBUS_HFP_CONNECTED) {
+        } else if (a2dp_sink_get_state(ic->a2dp) >= ORANGEBUS_A2DP_CONNECTED && hfpState < ORANGEBUS_HFP_CONNECTED) {
             avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PLAY);
         }
-    } else if (btn == BLUEBUS_IBUS_MFL_BTN_VOL_UP) {
+    } else if (btn == ORANGEBUS_IBUS_MFL_BTN_VOL_UP) {
         audio_output_adjust_volume(ic->audio, 5);
-    } else if (btn == BLUEBUS_IBUS_MFL_BTN_VOL_DOWN) {
+    } else if (btn == ORANGEBUS_IBUS_MFL_BTN_VOL_DOWN) {
         audio_output_adjust_volume(ic->audio, -5);
     }
 }
@@ -115,7 +115,7 @@ static void on_ignition_status(uint8_t *data, uint8_t len)
 {
 	ibus_ctx_t *ic = s_ibus_ctx;
 	if (len < 1) return;
-	bool on = (data[0] != BLUEBUS_IBUS_IGNITION_OFF);
+	bool on = (data[0] != ORANGEBUS_IBUS_IGNITION_OFF);
 	cdc_on_ignition(ic->cdc, data, len);
 	ui_cd53_on_ignition(ic->uiCd53, on);
 	ui_mir_on_ignition(ic->uiMir, on);
@@ -132,7 +132,7 @@ static void on_volume_change(uint8_t *data, uint8_t len)
     ibus_ctx_t *ic = s_ibus_ctx;
     if (len < 1) return;
     uint8_t dir = data[0];
-    if (dir == BLUEBUS_IBUS_RAD_VOL_UP) {
+    if (dir == ORANGEBUS_IBUS_RAD_VOL_UP) {
         audio_output_adjust_volume(ic->audio, 2);
     } else {
         audio_output_adjust_volume(ic->audio, -2);
@@ -142,19 +142,19 @@ static void on_volume_change(uint8_t *data, uint8_t len)
 static void set_active_ui(ibus_ctx_t *ic)
 {
 	uint8_t uiMode = ibus_config_get(ic->config, "ui_mode");
-	ui_cd53_set_active(ic->uiCd53, uiMode == BLUEBUS_UI_MODE_CD53);
-	ui_bmbt_set_active(ic->uiBmbt, uiMode == BLUEBUS_UI_MODE_BMBT);
-	ui_mid_set_active(ic->uiMid, uiMode == BLUEBUS_UI_MODE_MID);
-	ui_mir_set_active(ic->uiMir, uiMode == BLUEBUS_UI_MODE_MIR);
+	ui_cd53_set_active(ic->uiCd53, uiMode == ORANGEBUS_UI_MODE_CD53);
+	ui_bmbt_set_active(ic->uiBmbt, uiMode == ORANGEBUS_UI_MODE_BMBT);
+	ui_mid_set_active(ic->uiMid, uiMode == ORANGEBUS_UI_MODE_MID);
+	ui_mir_set_active(ic->uiMir, uiMode == ORANGEBUS_UI_MODE_MIR);
 }
 
-static void send_metadata_to_ui(ibus_ctx_t *ic, const bluebus_metadata_t *meta, bool playing)
+static void send_metadata_to_ui(ibus_ctx_t *ic, const orangebus_metadata_t *meta, bool playing)
 {
 	if (!meta) return;
 	uint8_t uiMode = ibus_config_get(ic->config, "ui_mode");
 	uint8_t metaMode = ibus_config_get(ic->config, "meta_mode");
 
-	char metaText[BLUEBUS_IBUS_MID_MAX_CHARS + 1];
+	char metaText[ORANGEBUS_IBUS_MID_MAX_CHARS + 1];
 	switch (metaMode) {
 	case 1:
 		if (meta->artist[0] && meta->title[0]) {
@@ -197,16 +197,16 @@ static void send_metadata_to_ui(ibus_ctx_t *ic, const bluebus_metadata_t *meta, 
 	}
 
 	switch (uiMode) {
-	case BLUEBUS_UI_MODE_CD53:
+	case ORANGEBUS_UI_MODE_CD53:
 		ui_cd53_show_title(ic->uiCd53, metaText);
 		break;
-	case BLUEBUS_UI_MODE_MIR:
+	case ORANGEBUS_UI_MODE_MIR:
 		ui_mir_show_title(ic->uiMir, metaText);
 		break;
-	case BLUEBUS_UI_MODE_MID:
+	case ORANGEBUS_UI_MODE_MID:
 		ui_mid_show_title(ic->uiMid, metaText);
 		break;
-	case BLUEBUS_UI_MODE_BMBT:
+	case ORANGEBUS_UI_MODE_BMBT:
 		ui_bmbt_on_metadata(ic->uiBmbt, meta->title, meta->artist, meta->album);
 		break;
 	}
@@ -240,19 +240,19 @@ static void ibus_task(void *arg)
 				set_active_ui(ic);
 			}
 
-			bluebus_a2dp_state_t a2dpState = a2dp_sink_get_state(ic->a2dp);
+			orangebus_a2dp_state_t a2dpState = a2dp_sink_get_state(ic->a2dp);
 			if (a2dpState != ic->lastA2dpState) {
-				bluebus_a2dp_state_t prev = ic->lastA2dpState;
+				orangebus_a2dp_state_t prev = ic->lastA2dpState;
 				ic->lastA2dpState = a2dpState;
-				if (a2dpState == BLUEBUS_A2DP_PLAYING) {
-					const bluebus_metadata_t *meta = avrcp_controller_get_metadata(ic->avrcp);
+				if (a2dpState == ORANGEBUS_A2DP_PLAYING) {
+					const orangebus_metadata_t *meta = avrcp_controller_get_metadata(ic->avrcp);
 					send_metadata_to_ui(ic, meta, true);
 					ui_bmbt_on_playback(ic->uiBmbt, true);
-				} else if (a2dpState == BLUEBUS_A2DP_PAUSED || a2dpState == BLUEBUS_A2DP_CONNECTED) {
+				} else if (a2dpState == ORANGEBUS_A2DP_PAUSED || a2dpState == ORANGEBUS_A2DP_CONNECTED) {
 					ui_bmbt_on_playback(ic->uiBmbt, false);
 				}
-				if (a2dpState >= BLUEBUS_A2DP_CONNECTED
-					&& prev < BLUEBUS_A2DP_CONNECTED
+				if (a2dpState >= ORANGEBUS_A2DP_CONNECTED
+					&& prev < ORANGEBUS_A2DP_CONNECTED
 					&& ibus_config_get(ic->config, "autoplay") != 0
 					&& !cdc_is_playing(ic->cdc)) {
 					cdc_set_playing(ic->cdc, true);
@@ -260,28 +260,28 @@ static void ibus_task(void *arg)
 				}
 			}
 
-            const bluebus_metadata_t *meta = avrcp_controller_get_metadata(ic->avrcp);
+            const orangebus_metadata_t *meta = avrcp_controller_get_metadata(ic->avrcp);
             if (meta && (strcmp(meta->title, ic->lastTitle) != 0 || strcmp(meta->artist, ic->lastArtist) != 0)) {
                 strncpy(ic->lastTitle, meta->title, sizeof(ic->lastTitle) - 1);
                 ic->lastTitle[sizeof(ic->lastTitle) - 1] = '\0';
                 strncpy(ic->lastArtist, meta->artist, sizeof(ic->lastArtist) - 1);
                 ic->lastArtist[sizeof(ic->lastArtist) - 1] = '\0';
-                send_metadata_to_ui(ic, meta, a2dpState == BLUEBUS_A2DP_PLAYING);
+                send_metadata_to_ui(ic, meta, a2dpState == ORANGEBUS_A2DP_PLAYING);
             }
 
-            bluebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
+            orangebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
             if (hfpState != ic->lastHfpState) {
                 ic->lastHfpState = hfpState;
-                if (hfpState == BLUEBUS_HFP_CONNECTED) {
+                if (hfpState == ORANGEBUS_HFP_CONNECTED) {
                     tel_set_connected(ic->tel, true);
-                } else if (hfpState == BLUEBUS_HFP_IDLE) {
+                } else if (hfpState == ORANGEBUS_HFP_IDLE) {
                     tel_set_connected(ic->tel, false);
                     tel_set_call_active(ic->tel, false);
-                } else if (hfpState == BLUEBUS_HFP_INCOMING) {
+                } else if (hfpState == ORANGEBUS_HFP_INCOMING) {
                     tel_set_call_incoming(ic->tel, true);
                     const char *callerId = hfp_client_get_caller_id(ic->hfp);
                     if (callerId && callerId[0]) tel_set_caller_id(ic->tel, callerId);
-                } else if (hfpState == BLUEBUS_HFP_ACTIVE || hfpState == BLUEBUS_HFP_AUDIO_OPEN) {
+                } else if (hfpState == ORANGEBUS_HFP_ACTIVE || hfpState == ORANGEBUS_HFP_AUDIO_OPEN) {
                     tel_set_call_active(ic->tel, true);
                 }
             }
@@ -294,9 +294,9 @@ static void ibus_task(void *arg)
 void app_main(void)
 {
 ESP_LOGI(TAG, "========================================");
-ESP_LOGI(TAG, " ESP32 BlueBus BT Test (ESP-IDF v6.0)");
+ESP_LOGI(TAG, " ESP32 OrangeBus BT Test (ESP-IDF v6.0)");
 ESP_LOGI(TAG, "========================================");
-ESP_LOGI(TAG, "Pair phone with 'BMW-BlueBus'");
+ESP_LOGI(TAG, "Pair phone with 'BMW-OrangeBus'");
 ESP_LOGI(TAG, "Commands: +/- vol, m mute, p play, s pause");
 ESP_LOGI(TAG, " n next, b prev, a answer, r reject, d redial");
 ESP_LOGI(TAG, " v voice (AVRCP), V voice (HFP), h status");
@@ -380,11 +380,11 @@ ic->a2dp = a2dp;
 ic->hfp = hfp;
 ic->audio = audio;
 
-	ibus_register_callback(ibus, BLUEBUS_IBUS_EVT_CDC_STATUS_REQ, on_cdc_status_req);
-	ibus_register_callback(ibus, BLUEBUS_IBUS_EVT_CDC_BUTTON_PRESS, on_cdc_button_press);
-	ibus_register_callback(ibus, BLUEBUS_IBUS_EVT_MFL_BUTTON_PRESS, on_mfl_button);
-	ibus_register_callback(ibus, BLUEBUS_IBUS_EVT_IGNITION_STATUS, on_ignition_status);
-	ibus_register_callback(ibus, BLUEBUS_IBUS_EVT_VOLUME_CHANGE, on_volume_change);
+	ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_CDC_STATUS_REQ, on_cdc_status_req);
+	ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_CDC_BUTTON_PRESS, on_cdc_button_press);
+	ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_MFL_BUTTON_PRESS, on_mfl_button);
+	ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_IGNITION_STATUS, on_ignition_status);
+	ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_VOLUME_CHANGE, on_volume_change);
 
 	set_active_ui(ic);
 

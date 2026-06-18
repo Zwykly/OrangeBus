@@ -54,13 +54,13 @@ static void serial_cmd_task(void *arg)
             ESP_LOGI(TAG, "%s", audio_output_is_muted(cli->audio) ? "MUTED" : "UNMUTED");
             break;
         case 'p':
-            if (a2dp_sink_get_state(cli->a2dp) >= BLUEBUS_A2DP_CONNECTED) {
+            if (a2dp_sink_get_state(cli->a2dp) >= ORANGEBUS_A2DP_CONNECTED) {
                 avrcp_controller_send_passthrough(cli->avrcp, ESP_AVRC_PT_CMD_PLAY);
                 ESP_LOGI(TAG, "CMD: Play");
             }
             break;
         case 's':
-            if (a2dp_sink_get_state(cli->a2dp) == BLUEBUS_A2DP_PLAYING) {
+            if (a2dp_sink_get_state(cli->a2dp) == ORANGEBUS_A2DP_PLAYING) {
                 avrcp_controller_send_passthrough(cli->avrcp, ESP_AVRC_PT_CMD_PAUSE);
                 ESP_LOGI(TAG, "CMD: Pause");
             }
@@ -74,35 +74,35 @@ static void serial_cmd_task(void *arg)
             ESP_LOGI(TAG, "CMD: Previous track");
             break;
         case 'a':
-            if (hfp_client_get_state(cli->hfp) == BLUEBUS_HFP_INCOMING) {
+            if (hfp_client_get_state(cli->hfp) == ORANGEBUS_HFP_INCOMING) {
                 hfp_client_answer(cli->hfp);
                 ESP_LOGI(TAG, "CMD: Answer");
             }
             break;
         case 'r':
-            if (hfp_client_get_state(cli->hfp) == BLUEBUS_HFP_INCOMING) {
+            if (hfp_client_get_state(cli->hfp) == ORANGEBUS_HFP_INCOMING) {
                 hfp_client_reject(cli->hfp);
                 ESP_LOGI(TAG, "CMD: Reject");
-            } else if (hfp_client_get_state(cli->hfp) == BLUEBUS_HFP_ACTIVE ||
-                       hfp_client_get_state(cli->hfp) == BLUEBUS_HFP_OUTGOING) {
+            } else if (hfp_client_get_state(cli->hfp) == ORANGEBUS_HFP_ACTIVE ||
+                       hfp_client_get_state(cli->hfp) == ORANGEBUS_HFP_OUTGOING) {
                 hfp_client_reject(cli->hfp);
                 ESP_LOGI(TAG, "CMD: End call");
             }
             break;
         case 'd':
-            if (hfp_client_get_state(cli->hfp) >= BLUEBUS_HFP_CONNECTED) {
+            if (hfp_client_get_state(cli->hfp) >= ORANGEBUS_HFP_CONNECTED) {
                 hfp_client_redial(cli->hfp);
                 ESP_LOGI(TAG, "CMD: Redial");
             }
             break;
         case 'v':
-            if (a2dp_sink_get_state(cli->a2dp) >= BLUEBUS_A2DP_CONNECTED) {
+            if (a2dp_sink_get_state(cli->a2dp) >= ORANGEBUS_A2DP_CONNECTED) {
                 avrcp_controller_send_passthrough(cli->avrcp, AVRCP_PT_CMD_VOICE_RECOG);
                 ESP_LOGI(TAG, "CMD: Voice Assistant (AVRCP)");
             }
             break;
         case 'V':
-            if (hfp_client_get_state(cli->hfp) >= BLUEBUS_HFP_CONNECTED) {
+            if (hfp_client_get_state(cli->hfp) >= ORANGEBUS_HFP_CONNECTED) {
                 hfp_client_toggle_voice_recognition(cli->hfp);
                 ESP_LOGI(TAG, "CMD: Voice Recognition %s (HFP)",
                          hfp_client_is_vra_active(cli->hfp) ? "OFF" : "ON");
@@ -117,7 +117,7 @@ ESP_LOGI(TAG, " Vol: %d%% %s", audio_output_get_volume(cli->audio),
 audio_output_is_muted(cli->audio) ? "(MUTED)" : "");
 ESP_LOGI(TAG, " EQ: %s", eq_processor_is_enabled(cli->eq) ? "ON" : "OFF");
 {
-const bluebus_metadata_t *meta = avrcp_controller_get_metadata(cli->avrcp);
+const orangebus_metadata_t *meta = avrcp_controller_get_metadata(cli->avrcp);
 if (meta) {
 ESP_LOGI(TAG, " Meta: %s - %s (%s)",
 meta->title[0] ? meta->title : "-",
@@ -170,10 +170,10 @@ ESP_LOGI(TAG, " B%d: %.0fHz Q%.1f %+.1fdB", i, b->freq, b->q, b->gain_db);
             uint8_t uiMode = ibus_config_get(cli->config, "ui_mode");
             const char *uiStr = "UNKNOWN";
             switch (uiMode) {
-            case BLUEBUS_UI_MODE_CD53: uiStr = "CD53"; break;
-            case BLUEBUS_UI_MODE_BMBT: uiStr = "BMBT"; break;
-            case BLUEBUS_UI_MODE_MID:  uiStr = "MID"; break;
-            case BLUEBUS_UI_MODE_MIR:  uiStr = "MIR"; break;
+            case ORANGEBUS_UI_MODE_CD53: uiStr = "CD53"; break;
+            case ORANGEBUS_UI_MODE_BMBT: uiStr = "BMBT"; break;
+            case ORANGEBUS_UI_MODE_MID:  uiStr = "MID"; break;
+            case ORANGEBUS_UI_MODE_MIR:  uiStr = "MIR"; break;
             }
             ESP_LOGI(TAG, " UI: %s, Autoplay: %d, Blink: %d, Locks: %d, Mirrors: %d",
                 uiStr,
@@ -185,7 +185,7 @@ ESP_LOGI(TAG, " B%d: %.0fHz Q%.1f %+.1fdB", i, b->freq, b->q, b->gain_db);
         break;
     case 'u':
         if (cli->config) {
-            uint8_t modes[] = {BLUEBUS_UI_MODE_CD53, BLUEBUS_UI_MODE_BMBT, BLUEBUS_UI_MODE_MID, BLUEBUS_UI_MODE_MIR};
+            uint8_t modes[] = {ORANGEBUS_UI_MODE_CD53, ORANGEBUS_UI_MODE_BMBT, ORANGEBUS_UI_MODE_MID, ORANGEBUS_UI_MODE_MIR};
             uint8_t cur = ibus_config_get(cli->config, "ui_mode");
             uint8_t next = 0;
             for (int j = 0; j < 4; j++) {
@@ -194,10 +194,10 @@ ESP_LOGI(TAG, " B%d: %.0fHz Q%.1f %+.1fdB", i, b->freq, b->q, b->gain_db);
             ibus_config_set(cli->config, "ui_mode", next);
             const char *str = "UNKNOWN";
             switch (next) {
-            case BLUEBUS_UI_MODE_CD53: str = "CD53"; break;
-            case BLUEBUS_UI_MODE_BMBT: str = "BMBT"; break;
-            case BLUEBUS_UI_MODE_MID:  str = "MID"; break;
-            case BLUEBUS_UI_MODE_MIR:  str = "MIR"; break;
+            case ORANGEBUS_UI_MODE_CD53: str = "CD53"; break;
+            case ORANGEBUS_UI_MODE_BMBT: str = "BMBT"; break;
+            case ORANGEBUS_UI_MODE_MID:  str = "MID"; break;
+            case ORANGEBUS_UI_MODE_MIR:  str = "MIR"; break;
             }
             ESP_LOGI(TAG, "UI Mode: %s", str);
         }

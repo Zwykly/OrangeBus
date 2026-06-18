@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
-#include "bluebus.h"
+#include "orangebus.h"
 
 cdc_t *cdc_create(ibus_t *ibus, ibus_config_t *config);
 void cdc_destroy(cdc_t *cdc);

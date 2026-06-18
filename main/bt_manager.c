@@ -87,7 +87,7 @@ esp_err_t bt_manager_init(void)
     }
 
     ESP_LOGI(TAG, "[5/6] Set device name + security...");
-    esp_bt_gap_set_device_name("BMW-BlueBus");
+    esp_bt_gap_set_device_name("BMW-OrangeBus");
     esp_bt_gap_register_callback(gap_cb);
 
     esp_bt_io_cap_t iocap = ESP_BT_IO_CAP_NONE;

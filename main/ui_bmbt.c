@@ -26,7 +26,7 @@ static void bmbt_show_dashboard(ui_bmbt_t *ui)
 {
 	if (!ui->active) return;
 	ibus_send_gt_clear(ui->ibus);
-	ibus_send_gt_title(ui->ibus, ui->playing ? "BlueBus" : "BlueBus [Paused]");
+	ibus_send_gt_title(ui->ibus, ui->playing ? "OrangeBus" : "OrangeBus [Paused]");
 
     char line[49];
     if (strlen(ui->title) > 0) {

@@ -22,8 +22,8 @@ struct cdc_t {
 
 static void cdc_send_status(cdc_t *cdc)
 {
-    uint8_t status = cdc->playing ? BLUEBUS_IBUS_CDC_STAT_PLAYING : BLUEBUS_IBUS_CDC_STAT_STOP;
-    uint8_t function = cdc->playing ? BLUEBUS_IBUS_CDC_FUNC_PLAYING : BLUEBUS_IBUS_CDC_FUNC_NOT_PLAY;
+    uint8_t status = cdc->playing ? ORANGEBUS_IBUS_CDC_STAT_PLAYING : ORANGEBUS_IBUS_CDC_STAT_STOP;
+    uint8_t function = cdc->playing ? ORANGEBUS_IBUS_CDC_FUNC_PLAYING : ORANGEBUS_IBUS_CDC_FUNC_NOT_PLAY;
     ibus_send_cdc_status(cdc->ibus, status, function);
     cdc->lastStatusTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
 }
@@ -59,18 +59,18 @@ void cdc_on_request(cdc_t *cdc, uint8_t *data, uint8_t len)
     cdc->lastPollTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
     uint8_t cmd = data[0];
     switch (cmd) {
-    case BLUEBUS_IBUS_CDC_CMD_GET_STATUS:
+    case ORANGEBUS_IBUS_CDC_CMD_GET_STATUS:
         cdc_send_status(cdc);
         break;
-    case BLUEBUS_IBUS_CDC_CMD_STOP_PLAYING:
+    case ORANGEBUS_IBUS_CDC_CMD_STOP_PLAYING:
         cdc->playing = false;
         cdc_send_status(cdc);
         break;
-    case BLUEBUS_IBUS_CDC_CMD_START_PLAYING:
+    case ORANGEBUS_IBUS_CDC_CMD_START_PLAYING:
         cdc->playing = true;
         cdc_send_status(cdc);
         break;
-    case BLUEBUS_IBUS_CDC_CMD_PAUSE_PLAYING:
+    case ORANGEBUS_IBUS_CDC_CMD_PAUSE_PLAYING:
         cdc->playing = false;
         cdc_send_status(cdc);
         break;
@@ -84,7 +84,7 @@ void cdc_on_ignition(cdc_t *cdc, uint8_t *data, uint8_t len)
 {
     if (!cdc || len < 1) return;
     bool wasOn = cdc->ignitionOn;
-    cdc->ignitionOn = (data[0] != BLUEBUS_IBUS_IGNITION_OFF);
+    cdc->ignitionOn = (data[0] != ORANGEBUS_IBUS_IGNITION_OFF);
     if (cdc->ignitionOn && !wasOn) {
         ESP_LOGI(TAG, "Ignition ON");
         cdc->lastStatusTime = 0;

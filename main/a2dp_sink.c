@@ -8,9 +8,9 @@
 #define TAG "A2DP_SINK"
 
 struct a2dp_sink_t {
-    bluebus_a2dp_state_t state;
+    orangebus_a2dp_state_t state;
     audio_output_t *audio;
-    bluebus_hfp_state_t *hfp_state_ref;
+    orangebus_hfp_state_t *hfp_state_ref;
 };
 
 static a2dp_sink_t *s_instance = NULL;
@@ -30,21 +30,21 @@ static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     switch (event) {
     case ESP_A2D_CONNECTION_STATE_EVT:
         if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
-            sink->state = BLUEBUS_A2DP_CONNECTED;
+            sink->state = ORANGEBUS_A2DP_CONNECTED;
             ESP_LOGI(TAG, "A2DP Connected");
         } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
-            sink->state = BLUEBUS_A2DP_IDLE;
+            sink->state = ORANGEBUS_A2DP_IDLE;
             ESP_LOGI(TAG, "A2DP Disconnected");
         }
         break;
     case ESP_A2D_AUDIO_STATE_EVT:
         if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_STARTED) {
-            sink->state = BLUEBUS_A2DP_PLAYING;
+            sink->state = ORANGEBUS_A2DP_PLAYING;
             audio_output_switch_a2dp(sink->audio);
             audio_output_set_mute(sink->audio, false);
             ESP_LOGI(TAG, "A2DP Playing");
         } else if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_SUSPEND) {
-            sink->state = BLUEBUS_A2DP_PAUSED;
+            sink->state = ORANGEBUS_A2DP_PAUSED;
             ESP_LOGI(TAG, "A2DP Suspended");
         }
         break;
@@ -72,28 +72,28 @@ esp_err_t a2dp_sink_init(a2dp_sink_t *sink)
     return ESP_OK;
 }
 
-bluebus_a2dp_state_t a2dp_sink_get_state(const a2dp_sink_t *sink)
+orangebus_a2dp_state_t a2dp_sink_get_state(const a2dp_sink_t *sink)
 {
-    return sink ? sink->state : BLUEBUS_A2DP_IDLE;
+    return sink ? sink->state : ORANGEBUS_A2DP_IDLE;
 }
 
-bluebus_a2dp_state_t *a2dp_sink_get_state_ptr(a2dp_sink_t *sink)
+orangebus_a2dp_state_t *a2dp_sink_get_state_ptr(a2dp_sink_t *sink)
 {
     return sink ? &sink->state : NULL;
 }
 
-const char *a2dp_sink_state_str(bluebus_a2dp_state_t state)
+const char *a2dp_sink_state_str(orangebus_a2dp_state_t state)
 {
     switch (state) {
-    case BLUEBUS_A2DP_PLAYING:    return "PLAYING";
-    case BLUEBUS_A2DP_CONNECTED:  return "CONNECTED";
-    case BLUEBUS_A2DP_PAUSED:     return "PAUSED";
-    case BLUEBUS_A2DP_CONNECTING: return "CONNECTING";
+    case ORANGEBUS_A2DP_PLAYING:    return "PLAYING";
+    case ORANGEBUS_A2DP_CONNECTED:  return "CONNECTED";
+    case ORANGEBUS_A2DP_PAUSED:     return "PAUSED";
+    case ORANGEBUS_A2DP_CONNECTING: return "CONNECTING";
     default:                      return "IDLE";
     }
 }
 
-void a2dp_sink_set_hfp_state_ref(a2dp_sink_t *sink, bluebus_hfp_state_t *ref)
+void a2dp_sink_set_hfp_state_ref(a2dp_sink_t *sink, orangebus_hfp_state_t *ref)
 {
     if (sink) sink->hfp_state_ref = ref;
 }

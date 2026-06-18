@@ -48,8 +48,8 @@ void ui_cd53_tick(ui_cd53_t *ui)
 	if (!ui || !ui->active || !ui->ignitionOn) return;
 	uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
 	if (strlen(ui->displayText) > 0 && (now - ui->lastMetaTime) >= CD53_REFRESH_INTERVAL) {
-		ibus_send_tel_title_text(ui->ibus, BLUEBUS_IBUS_TEL_TITLE_DEFAULT,
-			ui->displayText, BLUEBUS_IBUS_TEL_TITLE_OPT_SET);
+		ibus_send_tel_title_text(ui->ibus, ORANGEBUS_IBUS_TEL_TITLE_DEFAULT,
+			ui->displayText, ORANGEBUS_IBUS_TEL_TITLE_OPT_SET);
 		ui->lastMetaTime = now;
 	}
 }
@@ -60,8 +60,8 @@ void ui_cd53_show_title(ui_cd53_t *ui, const char *text)
 	strncpy(ui->displayText, text, sizeof(ui->displayText) - 1);
 	ui->displayText[sizeof(ui->displayText) - 1] = '\0';
 	if (ui->active) {
-		ibus_send_tel_title_text(ui->ibus, BLUEBUS_IBUS_TEL_TITLE_DEFAULT,
-			ui->displayText, BLUEBUS_IBUS_TEL_TITLE_OPT_SET);
+		ibus_send_tel_title_text(ui->ibus, ORANGEBUS_IBUS_TEL_TITLE_DEFAULT,
+			ui->displayText, ORANGEBUS_IBUS_TEL_TITLE_OPT_SET);
 		ui->lastMetaTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
 	}
 }
@@ -71,8 +71,8 @@ void ui_cd53_clear(ui_cd53_t *ui)
 	if (!ui) return;
 	memset(ui->displayText, 0, sizeof(ui->displayText));
 	if (ui->active) {
-		ibus_send_tel_title_text(ui->ibus, BLUEBUS_IBUS_TEL_TITLE_DEFAULT,
-			"", BLUEBUS_IBUS_TEL_TITLE_OPT_SET);
+		ibus_send_tel_title_text(ui->ibus, ORANGEBUS_IBUS_TEL_TITLE_DEFAULT,
+			"", ORANGEBUS_IBUS_TEL_TITLE_OPT_SET);
 	}
 }
 
