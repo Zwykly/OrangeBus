@@ -103,6 +103,7 @@ static void on_avrcp_meta(avrcp_controller_t *ac, uint8_t attr_id, const uint8_t
     }
 }
 
+/* Zadanie worker przetwarzajace komendy passthrough z kolejki */
 static void avrcp_cmd_worker(void *arg)
 {
     avrcp_controller_t *ac = (avrcp_controller_t *)arg;
@@ -136,6 +137,7 @@ static void avrcp_cmd_worker(void *arg)
     }
 }
 
+/* Glowny callback zdarzen AVRCP CT (polaczenie, metadane, powiadomienia) */
 static void avrcp_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
 {
     avrcp_controller_t *ac = s_instance;
@@ -195,6 +197,7 @@ static void avrcp_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *pa
     }
 }
 
+/* Konstruktor kontrolera AVRCP - alokuje strukture */
 avrcp_controller_t *avrcp_controller_create(void)
 {
     avrcp_controller_t *ac = calloc(1, sizeof(avrcp_controller_t));
@@ -211,6 +214,7 @@ void avrcp_controller_destroy(avrcp_controller_t *ac)
     free(ac);
 }
 
+/* Inicjalizuje kontroler AVRCP: timer metadanych, kolejke komend i zadanie worker */
 esp_err_t avrcp_controller_init(avrcp_controller_t *ac)
 {
     if (!ac) return ESP_ERR_INVALID_ARG;
@@ -254,6 +258,7 @@ orangebus_a2dp_state_t *avrcp_controller_get_a2dp_state_ref(avrcp_controller_t *
     return ac ? ac->a2dp_state_ref : NULL;
 }
 
+/* Rejestruje callback AVRCP CT w stosie Bluetooth i inicjalizuje profil */
 esp_err_t avrcp_controller_register_callbacks(avrcp_controller_t *ac)
 {
     if (!ac) return ESP_ERR_INVALID_ARG;

@@ -38,6 +38,7 @@ struct eq_processor_t {
     uint32_t sample_rate;
 };
 
+/* Oblicza wspolczynniki filtru biquad typu peaking EQ (Audio EQ Cookbook) */
 static void calc_biquad_peaking(eq_coeff_t *c, float freq, float q, float gain_db, uint32_t sr)
 {
     float w0 = 2.0f * (float)M_PI * freq / (float)sr;

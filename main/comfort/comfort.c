@@ -124,6 +124,9 @@ void comfort_on_ignition(comfort_t *c, bool on)
     c->ignitionOn = on;
 }
 
+/* TODO: Ta funkcja nigdy nie jest wywolywana - comfort_on_door_lock nie jest
+ * zarejestrowana jako callback I-BUS. Dodatkowo vTaskDelay(500ms) blokuje
+ * zadanie I-BUS - nalezy zamienic na opoznienie bez blokowania. */
 void comfort_on_door_lock(comfort_t *c, bool locked)
 {
     if (!c) return;

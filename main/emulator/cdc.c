@@ -28,6 +28,7 @@ static void cdc_send_status(cdc_t *cdc)
     cdc->lastStatusTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
 }
 
+/* Tworzy nową instancję emulatora CDC */
 cdc_t *cdc_create(ibus_t *ibus, ibus_config_t *config)
 {
     cdc_t *cdc = calloc(1, sizeof(cdc_t));
@@ -42,6 +43,7 @@ void cdc_destroy(cdc_t *cdc)
     free(cdc);
 }
 
+/* Inicjalizuje stan emulatora CDC */
 esp_err_t cdc_init(cdc_t *cdc)
 {
     if (!cdc) return ESP_ERR_INVALID_ARG;
@@ -53,6 +55,7 @@ esp_err_t cdc_init(cdc_t *cdc)
     return ESP_OK;
 }
 
+/* Obsługuje zapytania i komendy od radia */
 void cdc_on_request(cdc_t *cdc, uint8_t *data, uint8_t len)
 {
     if (!cdc || len < 1) return;
@@ -80,6 +83,7 @@ void cdc_on_request(cdc_t *cdc, uint8_t *data, uint8_t len)
     }
 }
 
+/* Obsługuje zmiany stanu zapłonu */
 void cdc_on_ignition(cdc_t *cdc, uint8_t *data, uint8_t len)
 {
     if (!cdc || len < 1) return;
@@ -101,6 +105,7 @@ void cdc_on_button_press(cdc_t *cdc, uint8_t *data, uint8_t len)
     ESP_LOGI(TAG, "CDC button: 0x%02X", data[0]);
 }
 
+/* Cyklicznie wysyła status do magistrali IBus */
 void cdc_tick(cdc_t *cdc)
 {
     if (!cdc) return;
@@ -119,6 +124,7 @@ bool cdc_is_playing(const cdc_t *cdc)
     return cdc ? cdc->playing : false;
 }
 
+/* Ustawia stan odtwarzania i wysyła status */
 void cdc_set_playing(cdc_t *cdc, bool playing)
 {
     if (!cdc) return;

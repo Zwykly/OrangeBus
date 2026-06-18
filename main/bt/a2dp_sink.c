@@ -15,6 +15,7 @@ struct a2dp_sink_t {
 
 static a2dp_sink_t *s_instance = NULL;
 
+/* Callback przekazujacy przychodzace dane audio A2DP do wyjscia audio */
 static void a2dp_data_cb(const uint8_t *data, uint32_t len)
 {
     if (s_instance) {
@@ -22,6 +23,7 @@ static void a2dp_data_cb(const uint8_t *data, uint32_t len)
     }
 }
 
+/* Glowny callback zdarzen A2DP (polaczenie, stan audio) */
 static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
 {
     a2dp_sink_t *sink = s_instance;
@@ -53,6 +55,7 @@ static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     }
 }
 
+/* Konstruktor sinka A2DP - alokuje strukture i wiaze z wyjsciem audio */
 a2dp_sink_t *a2dp_sink_create(audio_output_t *audio)
 {
     a2dp_sink_t *sink = calloc(1, sizeof(a2dp_sink_t));
@@ -98,6 +101,7 @@ void a2dp_sink_set_hfp_state_ref(a2dp_sink_t *sink, orangebus_hfp_state_t *ref)
     if (sink) sink->hfp_state_ref = ref;
 }
 
+/* Rejestruje callbacki A2DP w stosie Bluetooth i inicjalizuje sink */
 esp_err_t a2dp_sink_register_callbacks(a2dp_sink_t *sink)
 {
     if (!sink) return ESP_ERR_INVALID_ARG;
