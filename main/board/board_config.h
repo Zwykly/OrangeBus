@@ -1,0 +1,23 @@
+#ifndef BOARD_CONFIG_H
+#define BOARD_CONFIG_H
+
+#include <stdint.h>
+
+/* --- I2S - wyjscie audio DAC / wejscie mikrofonu PCM1808 --- */
+#define ORANGEBUS_I2S_BCK 26
+#define ORANGEBUS_I2S_WS 25
+#define ORANGEBUS_I2S_DATA 22
+#define ORANGEBUS_I2S_MCLK 0
+#define ORANGEBUS_I2S_MIC_DATA 35
+
+/* --- I-BUS UART (9600 8E1) --- */
+#define ORANGEBUS_IBUS_TX 17
+#define ORANGEBUS_IBUS_RX 16
+
+#define ORANGEBUS_IBUS_UART_NUM UART_NUM_2
+#define ORANGEBUS_IBUS_BAUD 9600
+#define ORANGEBUS_IBUS_RX_BUF_SIZE 256
+#define ORANGEBUS_IBUS_TX_BUF_SIZE 128
+#define ORANGEBUS_IBUS_MAX_PKT 64
+
+#endif
