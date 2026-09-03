@@ -11,9 +11,9 @@
 
 #define TAG "IBUS"
 
-/* Minimum IBUS length field: DST + CMD + CRC + at least 1 header byte.
- * Guards against noisy-bus length corruption (CODE_REVIEW 1.4). */
-#define IBUS_MIN_LEN_FIELD 4
+/* Minimum IBUS length field: DST + CMD + CRC. The packet builder uses
+ * len = 3 + dataLen, so 3 is a valid zero-payload frame (CODE_REVIEW 1.4). */
+#define IBUS_MIN_LEN_FIELD 3
 #define IBUS_MAX_LEN_FIELD (ORANGEBUS_IBUS_MAX_PKT - 2)
 
 static bool ibus_len_field_valid(uint8_t pktLen)
@@ -55,11 +55,12 @@ static void dispatch_event(ibus_t *ibus, orangebus_ibus_event_t event, uint8_t *
 static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
 {
     if (!ibus || !pkt) return;
-    if (len < 4 || len > ORANGEBUS_IBUS_MAX_PKT) return;
+    if (len < 5 || len > ORANGEBUS_IBUS_MAX_PKT) return;
     uint8_t src = pkt[ORANGEBUS_IBUS_PKT_SRC];
     uint8_t dst = pkt[ORANGEBUS_IBUS_PKT_DST];
     uint8_t cmd = pkt[ORANGEBUS_IBUS_PKT_CMD];
-    uint8_t dataLen = len - 4;
+    /* Payload excludes the trailing CRC byte. */
+    uint8_t dataLen = len - 5;
     uint8_t *data = &pkt[ORANGEBUS_IBUS_PKT_DB1];
 
     ESP_LOGI(TAG, "RX: SRC=%02X DST=%02X CMD=%02X LEN=%d", src, dst, cmd, dataLen);
