@@ -223,6 +223,9 @@ bool audio_output_is_a2dp_mode(const audio_output_t *ao)
 void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t len)
 {
     if (!ao || ao->muted || !ao->initialized || ao->tx_handle == NULL) return;
+    /* Drop 44.1 kHz A2DP frames while I2S runs at 8/16 kHz SCO rates;
+     * otherwise call audio is severely distorted (CODE_REVIEW 1.7). */
+    if (!ao->is_a2dp_mode) return;
     if (ao->mutex && !xSemaphoreTake(ao->mutex, pdMS_TO_TICKS(10))) return;
 
     static uint32_t a2dp_cb_count = 0;
@@ -259,6 +262,8 @@ void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t
 void audio_output_hfp_recv_cb(audio_output_t *ao, const uint8_t *data, uint32_t len)
 {
     if (!ao || ao->muted || !ao->initialized || ao->tx_handle == NULL) return;
+    /* Symmetrically drop SCO frames once I2S is back in A2DP mode. */
+    if (ao->is_a2dp_mode) return;
     if (ao->mutex && !xSemaphoreTake(ao->mutex, pdMS_TO_TICKS(10))) return;
 
     uint32_t mono_samples = len / 2;
