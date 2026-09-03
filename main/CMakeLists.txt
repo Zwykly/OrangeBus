@@ -22,5 +22,5 @@ SRCS
     "emulator/tel.c"
     "comfort/comfort.c"
     "cli/cli.c"
-PRIV_REQUIRES bt nvs_flash driver esp_driver_gpio esp_driver_i2s esp_driver_uart
+PRIV_REQUIRES bt nvs_flash driver esp_driver_gpio esp_driver_i2s esp_driver_uart esp_ringbuf freertos
 INCLUDE_DIRS "." "app" "board" "common" "ibus" "bt" "audio" "ui" "emulator" "comfort" "cli")
