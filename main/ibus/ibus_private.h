@@ -2,6 +2,8 @@
 #define IBUS_PRIVATE_H
 
 #include "ibus.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 /* Definicja struktury ibus_t - wspoldzielona miedzy modulami implementacji */
 struct ibus_t {
@@ -10,6 +12,10 @@ struct ibus_t {
     uint32_t rxLastByte;
     orangebus_ibus_cb_t callbacks[ORANGEBUS_IBUS_EVT_COUNT];
     uint8_t txBuf[ORANGEBUS_IBUS_MAX_PKT];
+    SemaphoreHandle_t txMutex;
+    uint8_t lastTxBuf[ORANGEBUS_IBUS_MAX_PKT];
+    uint8_t lastTxLen;
+    uint32_t lastTxMs;
     bool debugMode;
     bool uart_installed;
     ibus_config_t *config;
