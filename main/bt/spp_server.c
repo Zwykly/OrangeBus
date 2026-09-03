@@ -6,6 +6,7 @@
 #include "esp_spp_api.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #define TAG "SPP"
 #define SPP_SERVER_NAME "BMW_OrangeBus_SPP"
@@ -20,11 +21,17 @@ void spp_send_response(spp_server_t *spp, const char *msg)
     esp_spp_write(spp->handle, (int)strlen(msg), (uint8_t *)msg);
 }
 
-/* Zadanie przetwarzajace przychodzace komendy - dzieli bufor na linie CR/LF */
+/* Zadanie przetwarzajace przychodzace komendy - budzone semaforem z callbacku
+ * SPP zamiast sztywnego pollingu co 10 ms (CODE_REVIEW 3.3). */
 static void spp_cmd_task(void *arg)
 {
     spp_server_t *spp = (spp_server_t *)arg;
     while (1) {
+        if (spp->dataReady) {
+            xSemaphoreTake(spp->dataReady, pdMS_TO_TICKS(10));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
         if (spp->cmd_len > 0) {
             spp->cmd_buf[spp->cmd_len] = '\0';
 
@@ -90,6 +97,7 @@ static void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                 memcpy(spp->cmd_buf + spp->cmd_len, param->data_ind.data, copy);
                 spp->cmd_len += copy;
             }
+            if (spp->dataReady) xSemaphoreGive(spp->dataReady);
         }
         break;
 
@@ -110,12 +118,19 @@ spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, te
     spp->comfort = comfort;
     spp->avrcp = avrcp;
     spp->uiModeChanged = uiModeChanged;
+    spp->dataReady = xSemaphoreCreateBinary();
+    if (!spp->dataReady) {
+        free(spp);
+        return NULL;
+    }
     return spp;
 }
 
 void spp_server_destroy(spp_server_t *spp)
 {
-    if (spp) free(spp);
+    if (!spp) return;
+    if (spp->dataReady) vSemaphoreDelete(spp->dataReady);
+    free(spp);
 }
 
 esp_err_t spp_server_init(spp_server_t *spp)

@@ -2,6 +2,10 @@
 #define IBUS_PRIVATE_H
 
 #include "ibus.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+
+#define IBUS_UART_QUEUE_LEN 20
 
 /* Definicja struktury ibus_t - wspoldzielona miedzy modulami implementacji */
 struct ibus_t {
@@ -10,6 +14,7 @@ struct ibus_t {
     uint32_t rxLastByte;
     orangebus_ibus_cb_t callbacks[ORANGEBUS_IBUS_EVT_COUNT];
     uint8_t txBuf[ORANGEBUS_IBUS_MAX_PKT];
+    QueueHandle_t uartQueue;
     bool debugMode;
     bool uart_installed;
     ibus_config_t *config;

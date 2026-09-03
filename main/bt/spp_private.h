@@ -2,6 +2,8 @@
 #define SPP_PRIVATE_H
 
 #include "spp_server.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #define SPP_MAX_CMD 256
 
@@ -17,6 +19,7 @@ struct spp_server_t {
     comfort_t *comfort;
     avrcp_controller_t *avrcp;
     volatile bool *uiModeChanged;
+    SemaphoreHandle_t dataReady;
     char cmd_buf[SPP_MAX_CMD];
     int cmd_len;
 };

@@ -302,7 +302,13 @@ static void ibus_task(void *arg)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        /* Event-driven idle: wake early on UART RX, else re-check 100 ms
+         * ticks at 10 ms granularity (CODE_REVIEW 3.3). */
+        if (!ibus_is_debug_mode(ic->ibus)) {
+            ibus_wait_for_data(ic->ibus, 10);
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
     }
 }
 

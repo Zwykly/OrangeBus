@@ -84,6 +84,8 @@ void ibus_destroy(ibus_t *ibus)
         if (ibus->uart_installed) {
             uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
         }
+        ibus->uartQueue = NULL;
+        ibus->uart_installed = false;
         free(ibus);
     }
 }
@@ -102,7 +104,8 @@ esp_err_t ibus_init(ibus_t *ibus)
     };
 
     esp_err_t ret = uart_driver_install(ORANGEBUS_IBUS_UART_NUM,
-        ORANGEBUS_IBUS_RX_BUF_SIZE, ORANGEBUS_IBUS_TX_BUF_SIZE, 0, NULL, 0);
+        ORANGEBUS_IBUS_RX_BUF_SIZE, ORANGEBUS_IBUS_TX_BUF_SIZE,
+        IBUS_UART_QUEUE_LEN, &ibus->uartQueue, 0);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "UART driver install failed: %s. I-BUS unavailable, continuing...", esp_err_to_name(ret));
         ibus->uart_installed = false;
@@ -146,12 +149,65 @@ void ibus_register_callback(ibus_t *ibus, orangebus_ibus_event_t event, orangebu
     }
 }
 
+/* Drains pending UART events without blocking. Returns true when a data
+ * event was seen. Overflow/buffer-full events reset the assembler so a noisy
+ * bus cannot wedge the parser (CODE_REVIEW 3.3). */
+static bool ibus_drain_events(ibus_t *ibus)
+{
+    if (!ibus->uartQueue) return false;
+    bool dataSeen = false;
+    uart_event_t evt;
+    while (xQueueReceive(ibus->uartQueue, &evt, 0) == pdTRUE) {
+        switch (evt.type) {
+        case UART_DATA:
+            dataSeen = true;
+            break;
+        case UART_FIFO_OVF:
+        case UART_BUFFER_FULL:
+            ibus->rxLen = 0;
+            uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
+            xQueueReset(ibus->uartQueue);
+            break;
+        case UART_PARITY_ERR:
+        case UART_FRAME_ERR:
+            break;
+        default:
+            break;
+        }
+    }
+    return dataSeen;
+}
+
+/* Blocks up to timeout_ms for RX activity. Lets ibus_task sleep instead of
+ * spinning on a fixed 10 ms poll while keeping 100 ms tick granularity. */
+bool ibus_wait_for_data(ibus_t *ibus, uint32_t timeout_ms)
+{
+    if (!ibus || !ibus->uart_installed || !ibus->uartQueue) {
+        vTaskDelay(pdMS_TO_TICKS(timeout_ms));
+        return false;
+    }
+    if (ibus_drain_events(ibus)) return true;
+    uart_event_t evt;
+    if (xQueueReceive(ibus->uartQueue, &evt, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+        return false;
+    }
+    bool dataSeen = (evt.type == UART_DATA);
+    if (evt.type == UART_FIFO_OVF || evt.type == UART_BUFFER_FULL) {
+        ibus->rxLen = 0;
+        uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
+        xQueueReset(ibus->uartQueue);
+    }
+    if (!dataSeen) dataSeen = ibus_drain_events(ibus);
+    return dataSeen;
+}
+
 /* Odczytuje dane z UART i skladaje pakiety I-BUS z weryfikacja CRC */
 void ibus_process(ibus_t *ibus)
 {
     if (!ibus) return;
     if (ibus->debugMode) return;
     if (!ibus->uart_installed) return;
+    ibus_drain_events(ibus);
     uint8_t buf[32];
     int readLen;
     while ((readLen = uart_read_bytes(ORANGEBUS_IBUS_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(10))) > 0) {
