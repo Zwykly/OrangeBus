@@ -72,7 +72,9 @@ static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
         if (cmd == ORANGEBUS_IBUS_CMD_MOD_STATUS_RESP) {
             dispatch_event(ibus, ORANGEBUS_IBUS_EVT_GM_STATUS, data, dataLen);
         } else if (cmd == ORANGEBUS_IBUS_GM_CMD_REMOTE) {
-            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_DOOR_LOCK, data, dataLen);
+            if (dataLen >= 1) {
+                dispatch_event(ibus, ORANGEBUS_IBUS_EVT_DOOR_LOCK, data, dataLen);
+            }
         }
     } else if (src == ORANGEBUS_IBUS_DEV_LCM) {
         if (cmd == ORANGEBUS_IBUS_CMD_MOD_STATUS_RESP) {

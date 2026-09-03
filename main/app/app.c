@@ -162,7 +162,8 @@ static void on_lm_status(uint8_t *data, uint8_t len)
     comfort_on_lm_status(ic->comfort, data, len);
 }
 
-/* Callback: pilot centralnego zamka z GM (0x72). 0x12 = lock, 0x11 = unlock. */
+/* Callback: remote central-locking button frame from GM (device 0x00).
+ * Command 0x72 with payload 0x12 = lock, 0x11 = unlock. */
 static void on_door_lock(uint8_t *data, uint8_t len)
 {
     ibus_ctx_t *ic = s_ibus_ctx;

@@ -110,7 +110,9 @@ void comfort_tick(comfort_t *c)
     if (c->pendingLock && now >= c->lockDueTime) {
         c->pendingLock = false;
         c->lockDueTime = 0;
-        if (is_locks_enabled(c) && c->gmVariant != ORANGEBUS_COMFORT_GM_UNKNOWN) {
+        /* Re-validate: an unlock may have arrived after scheduling. */
+        if (c->lastLockState && is_locks_enabled(c) &&
+            c->gmVariant != ORANGEBUS_COMFORT_GM_UNKNOWN) {
             send_lock_command(c, true);
         }
     }
@@ -157,6 +159,9 @@ void comfort_on_door_lock(comfort_t *c, bool locked)
             c->lockDueTime = xTaskGetTickCount() * portTICK_PERIOD_MS + BLINK_ON_MS;
         }
     } else if (!locked && wasLocked) {
+        /* Cancel any still-pending lock pulse so it cannot re-lock after this. */
+        c->pendingLock = false;
+        c->lockDueTime = 0;
         if (is_blink_enabled(c)) {
             send_blink_command(c, true);
             c->blinkOffTime = xTaskGetTickCount() * portTICK_PERIOD_MS + (BLINK_ON_MS * 2);
