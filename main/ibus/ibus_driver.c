@@ -186,10 +186,14 @@ void ibus_process(ibus_t *ibus)
                     if (calcCrc == ibus->rxBuf[expectedTotal - 1]) {
                         /* Echo filter: most transceivers loop our own TX back
                          * on RX; drop byte-identical frames seen shortly
-                         * after transmission instead of dispatching them. */
-                        bool isEcho = (ibus->lastTxLen == expectedTotal
-                            && ibus->lastTxLen > 0
-                            && (now - ibus->lastTxMs) <= 100
+                         * after transmission instead of dispatching them.
+                         * Snapshot once: the TX side may update these fields
+                         * from another task between the individual reads. */
+                        uint8_t snapLen = ibus->lastTxLen;
+                        uint32_t snapMs = ibus->lastTxMs;
+                        bool isEcho = (snapLen == expectedTotal
+                            && snapLen > 0
+                            && (now - snapMs) <= 100
                             && memcmp(ibus->rxBuf, ibus->lastTxBuf, expectedTotal) == 0);
                         if (!isEcho) {
                             process_packet(ibus, ibus->rxBuf, expectedTotal);

@@ -17,6 +17,7 @@
 /* Wysyla surowy bufor: w trybie debug loguje z opisem, w normalnym trybie zapisuje na UART */
 void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
 {
+    if (!ibus || !buf || len == 0 || len > ORANGEBUS_IBUS_MAX_PKT) return;
     if (ibus->debugMode) {
         char hex[ORANGEBUS_IBUS_MAX_PKT * 3 + 1];
         int pos = 0;
@@ -32,22 +33,20 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
         return;
     }
     if (!ibus->uart_installed) return;
-    if (!buf || len == 0 || len > ORANGEBUS_IBUS_MAX_PKT) return;
     /* Listen-before-talk: defer while a byte arrived within the idle window
      * so we do not collide with radio/GM/LCM frames. Bounded so a babbling
-     * bus cannot stall the caller forever (full serialization in T6). */
+     * bus cannot stall the caller forever (full serialization in T6).
+     * NOTE: HZ=100 quantizes timing to 10 ms ticks, hence a full-tick delay. */
     for (int i = 0; i < IBUS_TX_DEFER_RETRIES; i++) {
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
         if ((now - ibus->rxLastByte) >= IBUS_TX_IDLE_MS) break;
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
     uart_write_bytes(ORANGEBUS_IBUS_UART_NUM, buf, len);
     uart_wait_tx_done(ORANGEBUS_IBUS_UART_NUM, pdMS_TO_TICKS(50));
-    if (len <= ORANGEBUS_IBUS_MAX_PKT) {
-        memcpy(ibus->lastTxBuf, buf, len);
-        ibus->lastTxLen = len;
-        ibus->lastTxMs = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    }
+    memcpy(ibus->lastTxBuf, buf, len);
+    ibus->lastTxLen = len;
+    ibus->lastTxMs = xTaskGetTickCount() * portTICK_PERIOD_MS;
 }
 
 /* Skladaje pakiet I-BUS (src|len|dst|cmd|data...|crc) i wysyla przez send_raw */
