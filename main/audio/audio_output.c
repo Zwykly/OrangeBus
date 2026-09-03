@@ -234,7 +234,7 @@ void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t
     int16_t *samples = (int16_t *)data;
     uint32_t sample_count = len / 2;
 
-    if (ao->eq && eq_processor_is_enabled(ao->eq)) {
+    if (ao->eq && eq_processor_is_enabled(ao->eq) && !eq_processor_is_flat(ao->eq)) {
         for (uint32_t i = 0; i < sample_count; i += 2) {
             eq_processor_process_frame(ao->eq, &samples[i], &samples[i + 1]);
         }
