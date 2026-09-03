@@ -32,6 +32,7 @@ static void dispatch_event(ibus_t *ibus, orangebus_ibus_event_t event, uint8_t *
 /* Dekoduje pakiet I-BUS i wywoluje odpowiednie callbacki zdarzen */
 static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
 {
+    if (!ibus || !pkt || len < 4) return;
     uint8_t src = pkt[ORANGEBUS_IBUS_PKT_SRC];
     uint8_t dst = pkt[ORANGEBUS_IBUS_PKT_DST];
     uint8_t cmd = pkt[ORANGEBUS_IBUS_PKT_CMD];
@@ -67,6 +68,16 @@ static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
         }
     } else if (src == ORANGEBUS_IBUS_DEV_PDC) {
         dispatch_event(ibus, ORANGEBUS_IBUS_EVT_PDC_STATUS, data, dataLen);
+    } else if (src == ORANGEBUS_IBUS_DEV_GM) {
+        if (cmd == ORANGEBUS_IBUS_CMD_MOD_STATUS_RESP) {
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_GM_STATUS, data, dataLen);
+        } else if (cmd == ORANGEBUS_IBUS_GM_CMD_REMOTE) {
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_DOOR_LOCK, data, dataLen);
+        }
+    } else if (src == ORANGEBUS_IBUS_DEV_LCM) {
+        if (cmd == ORANGEBUS_IBUS_CMD_MOD_STATUS_RESP) {
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_LM_STATUS, data, dataLen);
+        }
     }
 }
 

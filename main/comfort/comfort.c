@@ -21,6 +21,8 @@ struct comfort_t {
     bool lastLockState;
     bool blinkActive;
     uint32_t blinkOffTime;
+    bool pendingLock;
+    uint32_t lockDueTime;
     uint32_t lastLcmPing;
     uint32_t lastGmPing;
 };
@@ -86,6 +88,8 @@ esp_err_t comfort_init(comfort_t *c)
     c->lastLockState = false;
     c->blinkActive = false;
     c->blinkOffTime = 0;
+    c->pendingLock = false;
+    c->lockDueTime = 0;
     c->lastLcmPing = 0;
     c->lastGmPing = 0;
     ESP_LOGI(TAG, "Comfort initialized");
@@ -101,6 +105,14 @@ void comfort_tick(comfort_t *c)
         send_blink_command(c, false);
         c->blinkActive = false;
         c->blinkOffTime = 0;
+    }
+
+    if (c->pendingLock && now >= c->lockDueTime) {
+        c->pendingLock = false;
+        c->lockDueTime = 0;
+        if (is_locks_enabled(c) && c->gmVariant != ORANGEBUS_COMFORT_GM_UNKNOWN) {
+            send_lock_command(c, true);
+        }
     }
 
     if ((now - c->lastLcmPing) >= PING_INTERVAL) {
@@ -124,9 +136,8 @@ void comfort_on_ignition(comfort_t *c, bool on)
     c->ignitionOn = on;
 }
 
-/* TODO: Ta funkcja nigdy nie jest wywolywana - comfort_on_door_lock nie jest
- * zarejestrowana jako callback I-BUS. Dodatkowo vTaskDelay(500ms) blokuje
- * zadanie I-BUS - nalezy zamienic na opoznienie bez blokowania. */
+/* Wired to ORANGEBUS_IBUS_EVT_DOOR_LOCK via app.c. Non-blocking: the delayed
+ * central-lock pulse is scheduled in comfort_tick (lockDueTime). */
 void comfort_on_door_lock(comfort_t *c, bool locked)
 {
     if (!c) return;
@@ -142,8 +153,8 @@ void comfort_on_door_lock(comfort_t *c, bool locked)
             c->blinkActive = true;
         }
         if (is_locks_enabled(c) && c->gmVariant != ORANGEBUS_COMFORT_GM_UNKNOWN) {
-            vTaskDelay(pdMS_TO_TICKS(500));
-            send_lock_command(c, true);
+            c->pendingLock = true;
+            c->lockDueTime = xTaskGetTickCount() * portTICK_PERIOD_MS + BLINK_ON_MS;
         }
     } else if (!locked && wasLocked) {
         if (is_blink_enabled(c)) {
