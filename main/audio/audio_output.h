@@ -27,5 +27,7 @@ bool audio_output_is_a2dp_mode(const audio_output_t *ao);
 void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t len);
 void audio_output_hfp_recv_cb(audio_output_t *ao, const uint8_t *data, uint32_t len);
 uint32_t audio_output_hfp_send_cb(audio_output_t *ao, uint8_t *data, uint32_t len);
+uint32_t audio_output_get_drop_count(const audio_output_t *ao);
+uint32_t audio_output_get_processed_count(const audio_output_t *ao);
 
 #endif

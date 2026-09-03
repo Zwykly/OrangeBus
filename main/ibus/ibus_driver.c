@@ -1,6 +1,7 @@
 #include "ibus.h"
 #include "ibus_private.h"
 #include <stdlib.h>
+#include <string.h>
 #include "esp_log.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
@@ -9,6 +10,27 @@
 #include "ibus_config.h"
 
 #define TAG "IBUS"
+
+/* Minimum IBUS length field: DST + CMD + CRC. The packet builder uses
+ * len = 3 + dataLen, so 3 is a valid zero-payload frame (CODE_REVIEW 1.4). */
+#define IBUS_MIN_LEN_FIELD 3
+#define IBUS_MAX_LEN_FIELD (ORANGEBUS_IBUS_MAX_PKT - 2)
+
+static bool ibus_len_field_valid(uint8_t pktLen)
+{
+    return pktLen >= IBUS_MIN_LEN_FIELD && pktLen <= IBUS_MAX_LEN_FIELD;
+}
+
+/* Drop the oldest byte and keep the remainder for resync. */
+static void ibus_resync_shift(ibus_t *ibus)
+{
+    if (ibus->rxLen <= 1) {
+        ibus->rxLen = 0;
+        return;
+    }
+    memmove(ibus->rxBuf, ibus->rxBuf + 1, ibus->rxLen - 1);
+    ibus->rxLen--;
+}
 
 /* TODO: s_instance nie jest nigdzie odczytywane - martwy kod, do usuniecia */
 static ibus_t *s_instance = NULL;
@@ -32,11 +54,13 @@ static void dispatch_event(ibus_t *ibus, orangebus_ibus_event_t event, uint8_t *
 /* Dekoduje pakiet I-BUS i wywoluje odpowiednie callbacki zdarzen */
 static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
 {
-    if (!ibus || !pkt || len < 4) return;
+    if (!ibus || !pkt) return;
+    if (len < 5 || len > ORANGEBUS_IBUS_MAX_PKT) return;
     uint8_t src = pkt[ORANGEBUS_IBUS_PKT_SRC];
     uint8_t dst = pkt[ORANGEBUS_IBUS_PKT_DST];
     uint8_t cmd = pkt[ORANGEBUS_IBUS_PKT_CMD];
-    uint8_t dataLen = len - 4;
+    /* Payload excludes the trailing CRC byte. */
+    uint8_t dataLen = len - 5;
     uint8_t *data = &pkt[ORANGEBUS_IBUS_PKT_DB1];
 
     ESP_LOGI(TAG, "RX: SRC=%02X DST=%02X CMD=%02X LEN=%d", src, dst, cmd, dataLen);
@@ -186,19 +210,28 @@ void ibus_process(ibus_t *ibus)
             }
             ibus->rxLastByte = now;
             if (ibus->rxLen >= ORANGEBUS_IBUS_MAX_PKT) {
-                ibus->rxLen = 0;
+                ibus_resync_shift(ibus);
                 continue;
             }
             ibus->rxBuf[ibus->rxLen++] = b;
-            if (ibus->rxLen >= 3) {
+            if (ibus->rxLen >= 2) {
                 uint8_t pktLen = ibus->rxBuf[ORANGEBUS_IBUS_PKT_LEN];
+                if (!ibus_len_field_valid(pktLen)) {
+                    /* Corrupted length byte: resync byte-by-byte so the
+                     * remainder of the stream can still yield valid frames. */
+                    ibus_resync_shift(ibus);
+                    continue;
+                }
                 uint8_t expectedTotal = pktLen + 2;
                 if (ibus->rxLen >= expectedTotal) {
                     uint8_t calcCrc = ibus_crc(ibus->rxBuf, expectedTotal - 1);
                     if (calcCrc == ibus->rxBuf[expectedTotal - 1]) {
                         process_packet(ibus, ibus->rxBuf, expectedTotal);
+                        ibus->rxLen = 0;
+                    } else {
+                        /* CRC mismatch: first byte was not a real SOF. */
+                        ibus_resync_shift(ibus);
                     }
-                    ibus->rxLen = 0;
                 }
             }
         }
