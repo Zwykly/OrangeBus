@@ -135,6 +135,7 @@ spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, te
 void spp_server_destroy(spp_server_t *spp)
 {
     if (!spp) return;
+    if (s_instance == spp) s_instance = NULL;
     if (spp->bufMutex) vSemaphoreDelete(spp->bufMutex);
     free(spp);
 }

@@ -44,10 +44,15 @@ static uint8_t next_txn_label(avrcp_controller_t *ac)
 
 static void notify_metadata(avrcp_controller_t *ac)
 {
+    /* Snapshot under the mutex: writers in on_avrcp_meta run in BTC context. */
+    orangebus_metadata_t snap;
+    if (ac->metaMutex) xSemaphoreTake(ac->metaMutex, portMAX_DELAY);
+    memcpy(&snap, &ac->metadata, sizeof(snap));
+    if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
     ESP_LOGI(TAG, "Metadata: \"%s\" by %s (%s)",
-             ac->metadata.title[0] ? ac->metadata.title : "-",
-             ac->metadata.artist[0] ? ac->metadata.artist : "-",
-             ac->metadata.album[0] ? ac->metadata.album : "-");
+             snap.title[0] ? snap.title : "-",
+             snap.artist[0] ? snap.artist : "-",
+             snap.album[0] ? snap.album : "-");
 }
 
 static void request_metadata_impl(avrcp_controller_t *ac)
@@ -67,10 +72,13 @@ static void request_metadata_impl(avrcp_controller_t *ac)
 static void meta_timer_cb(TimerHandle_t timer)
 {
     avrcp_controller_t *ac = s_instance;
-    if (ac && ac->meta_requesting) {
-        notify_metadata(ac);
-        ac->meta_requesting = false;
-    }
+    if (!ac) return;
+    bool pending = false;
+    if (ac->metaMutex) xSemaphoreTake(ac->metaMutex, portMAX_DELAY);
+    pending = ac->meta_requesting;
+    ac->meta_requesting = false;
+    if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
+    if (pending) notify_metadata(ac);
 }
 
 static void on_avrcp_meta(avrcp_controller_t *ac, uint8_t attr_id, const uint8_t *val, uint8_t len)

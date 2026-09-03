@@ -17,6 +17,7 @@ esp_err_t avrcp_controller_init(avrcp_controller_t *ac);
 
 void avrcp_controller_send_passthrough(avrcp_controller_t *ac, uint8_t cmd);
 void avrcp_controller_request_metadata(avrcp_controller_t *ac);
+/* NOTE: not thread-safe across tasks; prefer copy_metadata for cross-task use. */
 const orangebus_metadata_t *avrcp_controller_get_metadata(const avrcp_controller_t *ac);
 void avrcp_controller_copy_metadata(const avrcp_controller_t *ac, orangebus_metadata_t *out);
 
