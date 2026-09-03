@@ -32,9 +32,6 @@ static void ibus_resync_shift(ibus_t *ibus)
     ibus->rxLen--;
 }
 
-/* TODO: s_instance nie jest nigdzie odczytywane - martwy kod, do usuniecia */
-static ibus_t *s_instance = NULL;
-
 uint8_t ibus_crc(const uint8_t *buf, uint8_t len)
 {
     uint8_t ck = 0;
@@ -153,7 +150,6 @@ esp_err_t ibus_init(ibus_t *ibus)
         ESP_LOGW(TAG, "UART driver install failed: %s. I-BUS unavailable, continuing...", esp_err_to_name(ret));
         ibus->uart_installed = false;
         ibus->debugMode = false;
-        s_instance = ibus;
         return ESP_OK;
     }
 
@@ -179,7 +175,6 @@ esp_err_t ibus_init(ibus_t *ibus)
 
     ibus->uart_installed = true;
     ibus->debugMode = false;
-    s_instance = ibus;
     ESP_LOGI(TAG, "I-BUS UART initialized (9600 8E1, TX=%d, RX=%d, debug=%s)",
         ORANGEBUS_IBUS_TX, ORANGEBUS_IBUS_RX, ibus->debugMode ? "ON" : "OFF");
     return ESP_OK;

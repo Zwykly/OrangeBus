@@ -260,6 +260,8 @@ esp_err_t avrcp_controller_init(avrcp_controller_t *ac)
     ac->cmd_queue = xQueueCreate(AVRCP_CMD_QUEUE_LEN, sizeof(avrcp_cmd_t));
     if (!ac->cmd_queue) return ESP_ERR_NO_MEM;
 
+    /* Kept at 5 (above CLI/SPP, below the T1 audio task at 10): AVRCP
+     * command pacing is BT-adjacent but must not starve ibus_task. */
     BaseType_t ok = xTaskCreate(avrcp_cmd_worker, "avrcp_cmd", 3072, ac, 5, &ac->worker_task);
     if (ok != pdPASS) return ESP_ERR_NO_MEM;
 

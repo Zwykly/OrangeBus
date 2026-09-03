@@ -453,7 +453,9 @@ void app_run(void)
     cli_t *cli_inst = cli_create(audio, avrcp, a2dp, hfp, eq, ibus, cdc, tel, ibusConfig);
     cli_start(cli_inst);
 
-    xTaskCreate(ibus_task, "ibus_task", 4096, ic, 5, NULL);
+    /* Time-critical bus task runs above CLI/SPP so radio polls are not
+     * delayed by command parsing (CODE_REVIEW 3.5). */
+    xTaskCreate(ibus_task, "ibus_task", 4096, ic, 6, NULL);
 
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, " INIT COMPLETE - BT discoverable!");

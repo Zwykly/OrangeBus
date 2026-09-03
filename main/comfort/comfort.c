@@ -31,7 +31,7 @@ static void send_lock_command(comfort_t *c, bool lock)
 {
     uint8_t data[] = { lock ? 0x00 : 0x01 };
     ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_GM,
-        lock ? 0x0B : 0x0A, data, sizeof(data));
+        lock ? ORANGEBUS_IBUS_GLO_CMD_LOCK : ORANGEBUS_IBUS_GLO_CMD_UNLOCK, data, sizeof(data));
 }
 
 static void send_blink_command(comfort_t *c, bool on)
@@ -39,14 +39,15 @@ static void send_blink_command(comfort_t *c, bool on)
     if (c->lmVariant == ORANGEBUS_COMFORT_LM_UNKNOWN) return;
     uint8_t data[] = { 0x00, on ? 0xFF : 0x00 };
     ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_LCM,
-        on ? 0x0C : 0x04, data, sizeof(data));
+        on ? ORANGEBUS_IBUS_LCM_CMD_BLINK_ON : ORANGEBUS_IBUS_LCM_CMD_BLINK_OFF, data, sizeof(data));
 }
 
 static void send_mirror_fold(comfort_t *c, bool fold)
 {
     if (c->gmVariant == ORANGEBUS_COMFORT_GM_ZKE3_GM5 || c->gmVariant == ORANGEBUS_COMFORT_GM_ZKE5) {
         uint8_t data[] = { fold ? 0x01 : 0x00, 0x00 };
-        ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_GM, 0x64, data, sizeof(data));
+        ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_GM,
+            ORANGEBUS_IBUS_GM_CMD_MIRROR, data, sizeof(data));
     }
 }
 

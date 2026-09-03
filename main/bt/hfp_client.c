@@ -179,6 +179,8 @@ void hfp_client_destroy(hfp_client_t *hf)
     if (hf) free(hf);
 }
 
+/* Init is intentionally minimal: allocation happens in create, stack
+ * registration in register_callbacks; kept as a checked no-op for API symmetry. */
 esp_err_t hfp_client_init(hfp_client_t *hf)
 {
     if (!hf) return ESP_ERR_INVALID_ARG;
@@ -187,7 +189,11 @@ esp_err_t hfp_client_init(hfp_client_t *hf)
 
 orangebus_hfp_state_t hfp_client_get_state(const hfp_client_t *hf)
 {
-    return hf ? hf->state : ORANGEBUS_HFP_IDLE;
+    if (!hf) {
+        ESP_LOGW(TAG, "get_state called with NULL handle");
+        return ORANGEBUS_HFP_IDLE;
+    }
+    return hf->state;
 }
 
 orangebus_hfp_state_t *hfp_client_get_state_ptr(hfp_client_t *hf)
@@ -209,7 +215,11 @@ const char *hfp_client_state_str(orangebus_hfp_state_t state)
 
 const char *hfp_client_get_caller_id(const hfp_client_t *hf)
 {
-    return hf ? hf->caller_id : "";
+    if (!hf) {
+        ESP_LOGW(TAG, "get_caller_id called with NULL handle");
+        return "";
+    }
+    return hf->caller_id;
 }
 
 bool hfp_client_is_vra_active(const hfp_client_t *hf)
@@ -227,9 +237,8 @@ void hfp_client_answer(hfp_client_t *hf)
 void hfp_client_reject(hfp_client_t *hf)
 {
     if (!hf) return;
-    if (hf->state == ORANGEBUS_HFP_INCOMING) {
-        esp_hf_client_reject_call();
-    } else if (hf->state == ORANGEBUS_HFP_ACTIVE || hf->state == ORANGEBUS_HFP_OUTGOING) {
+    if (hf->state == ORANGEBUS_HFP_INCOMING || hf->state == ORANGEBUS_HFP_ACTIVE ||
+        hf->state == ORANGEBUS_HFP_OUTGOING) {
         esp_hf_client_reject_call();
     }
 }

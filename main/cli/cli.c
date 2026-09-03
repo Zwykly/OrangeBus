@@ -266,9 +266,10 @@ void cli_destroy(cli_t *cli)
     if (cli) free(cli);
 }
 
-/* Uruchamia zadanie CLI do obslugi komend z portu szeregowego */
+/* Uruchamia zadanie CLI do obslugi komend z portu szeregowego.
+ * Lower priority than ibus_task so CLI parsing never delays radio polls. */
 void cli_start(cli_t *cli)
 {
     if (!cli) return;
-    xTaskCreate(serial_cmd_task, "serial_cmd", 3072, cli, 5, NULL);
+    xTaskCreate(serial_cmd_task, "serial_cmd", 3072, cli, 4, NULL);
 }
