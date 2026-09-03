@@ -226,7 +226,20 @@ void ibus_process(ibus_t *ibus)
                 if (ibus->rxLen >= expectedTotal) {
                     uint8_t calcCrc = ibus_crc(ibus->rxBuf, expectedTotal - 1);
                     if (calcCrc == ibus->rxBuf[expectedTotal - 1]) {
-                        process_packet(ibus, ibus->rxBuf, expectedTotal);
+                        /* Echo filter: most transceivers loop our own TX back
+                         * on RX; drop byte-identical frames seen shortly
+                         * after transmission instead of dispatching them.
+                         * Snapshot once: the TX side may update these fields
+                         * from another task between the individual reads. */
+                        uint8_t snapLen = ibus->lastTxLen;
+                        uint32_t snapMs = ibus->lastTxMs;
+                        bool isEcho = (snapLen == expectedTotal
+                            && snapLen > 0
+                            && (now - snapMs) <= 100
+                            && memcmp(ibus->rxBuf, ibus->lastTxBuf, expectedTotal) == 0);
+                        if (!isEcho) {
+                            process_packet(ibus, ibus->rxBuf, expectedTotal);
+                        }
                         ibus->rxLen = 0;
                     } else {
                         /* CRC mismatch: first byte was not a real SOF. */
