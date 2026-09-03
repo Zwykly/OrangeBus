@@ -148,6 +148,33 @@ static void on_volume_change(uint8_t *data, uint8_t len)
     }
 }
 
+/* Callback: status GM (wariant ZKE) - wykrywanie sprzetu dla komfortu */
+static void on_gm_status(uint8_t *data, uint8_t len)
+{
+    ibus_ctx_t *ic = s_ibus_ctx;
+    comfort_on_gm_status(ic->comfort, data, len);
+}
+
+/* Callback: status LCM (wariant swiatel) - wykrywanie sprzetu dla komfortu */
+static void on_lm_status(uint8_t *data, uint8_t len)
+{
+    ibus_ctx_t *ic = s_ibus_ctx;
+    comfort_on_lm_status(ic->comfort, data, len);
+}
+
+/* Callback: remote central-locking button frame from GM (device 0x00).
+ * Command 0x72 with payload 0x12 = lock, 0x11 = unlock. */
+static void on_door_lock(uint8_t *data, uint8_t len)
+{
+    ibus_ctx_t *ic = s_ibus_ctx;
+    if (len < 1) return;
+    if (data[0] == ORANGEBUS_IBUS_GM_REMOTE_LOCK) {
+        comfort_on_door_lock(ic->comfort, true);
+    } else if (data[0] == ORANGEBUS_IBUS_GM_REMOTE_UNLOCK) {
+        comfort_on_door_lock(ic->comfort, false);
+    }
+}
+
 /* Aktywuje interfejs UI zgodnie z konfiguracja (ui_mode), deaktywuje pozostale */
 static void set_active_ui(ibus_ctx_t *ic)
 {
@@ -306,9 +333,8 @@ static void ibus_task(void *arg)
     }
 }
 
-/* TODO: Callbacki comfort_on_door_lock/gm_status/lm_status sa zdefiniowane
- * w module comfort ale nigdzie nie zarejestrowane w ibus_register_callback.
- * Funkcje komfortu (auto-lock, skladanie lusterek) sa obecnie martwym kodem. */
+/* Comfort callbacks (door lock, GM/LCM variant detection) are wired to the
+ * I-BUS dispatcher below; variant pings are polled in comfort_tick. */
 
 void app_run(void)
 {
@@ -408,6 +434,9 @@ void app_run(void)
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_MFL_BUTTON_PRESS, on_mfl_button);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_IGNITION_STATUS, on_ignition_status);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_VOLUME_CHANGE, on_volume_change);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_GM_STATUS, on_gm_status);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_LM_STATUS, on_lm_status);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_DOOR_LOCK, on_door_lock);
 
     set_active_ui(ic);
 

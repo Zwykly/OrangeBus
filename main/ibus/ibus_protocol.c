@@ -10,11 +10,16 @@
 
 #define TAG "IBUS"
 
+/* Bus-idle arbitration (CODE_REVIEW 1.3): HZ=100 quantizes ms timing to
+ * 10 ms ticks, so the idle threshold must be >= 1 tick to be observable. */
+#define IBUS_TX_IDLE_MS 10
+#define IBUS_TX_DEFER_RETRIES 5
+
 /* Wysyla surowy bufor: w trybie debug loguje z opisem, w normalnym trybie zapisuje na UART.
  * Serialized by txMutex so ibus_task, spp_cmd_task and CLI cannot interleave. */
 void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
 {
-    if (!ibus || !buf) return;
+    if (!ibus || !buf || len == 0 || len > ORANGEBUS_IBUS_MAX_PKT) return;
     if (ibus->debugMode) {
         char hex[ORANGEBUS_IBUS_MAX_PKT * 3 + 1];
         int pos = 0;
@@ -31,8 +36,20 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
     }
     if (!ibus->uart_installed) return;
     if (ibus->txMutex) xSemaphoreTake(ibus->txMutex, portMAX_DELAY);
+    /* Listen-before-talk: defer while a byte arrived within the idle window
+     * so we do not collide with radio/GM/LCM frames. Bounded so a babbling
+     * bus cannot stall the caller forever.
+     * NOTE: HZ=100 quantizes timing to 10 ms ticks, hence a full-tick delay. */
+    for (int i = 0; i < IBUS_TX_DEFER_RETRIES; i++) {
+        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        if ((now - ibus->rxLastByte) >= IBUS_TX_IDLE_MS) break;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
     uart_write_bytes(ORANGEBUS_IBUS_UART_NUM, buf, len);
     uart_wait_tx_done(ORANGEBUS_IBUS_UART_NUM, pdMS_TO_TICKS(50));
+    memcpy(ibus->lastTxBuf, buf, len);
+    ibus->lastTxLen = len;
+    ibus->lastTxMs = xTaskGetTickCount() * portTICK_PERIOD_MS;
     if (ibus->txMutex) xSemaphoreGive(ibus->txMutex);
 }
 

@@ -89,6 +89,11 @@
 #define ORANGEBUS_IBUS_IGNITION_KLR 0x01
 #define ORANGEBUS_IBUS_IGNITION_KL15 0x03
 
+/* --- GM (ZKE central locking) --- */
+#define ORANGEBUS_IBUS_GM_CMD_REMOTE 0x72
+#define ORANGEBUS_IBUS_GM_REMOTE_LOCK 0x12
+#define ORANGEBUS_IBUS_GM_REMOTE_UNLOCK 0x11
+
 /* --- Komendy MID (wielofunkcyjny wyswietlacz) --- */
 #define ORANGEBUS_IBUS_MID_CMD_MODE 0x20
 #define ORANGEBUS_IBUS_MID_CMD_SET_MODE 0x27
