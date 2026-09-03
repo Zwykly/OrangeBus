@@ -5,15 +5,32 @@
 #include "eq_processor.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "freertos/ringbuf.h"
 #include "driver/i2s_std.h"
 #include "driver/i2s_common.h"
 
 #define TAG "AUDIO_OUT"
 
+/* Dedicated audio pipeline (fixes 1.1 + 1.2):
+ * BT callbacks only enqueue raw frames; DSP + I2S write happen here. */
+#define AUDIO_RINGBUF_BYTES (16 * 1024)
+#define AUDIO_SCRATCH_BYTES 4096
+#define AUDIO_TASK_STACK 4096
+#define AUDIO_TASK_PRIO 10
+#define AUDIO_I2S_WRITE_TIMEOUT_MS 50
+
 struct audio_output_t {
 i2s_chan_handle_t tx_handle;
 i2s_chan_handle_t rx_handle;
 SemaphoreHandle_t mutex;
+RingbufHandle_t a2dp_ring;
+TaskHandle_t audio_task;
+int16_t *a2dp_scratch;
+size_t scratch_bytes;
+volatile bool task_running;
+uint32_t processed_count;
+uint32_t drop_count;
 uint32_t rate;
 bool is_a2dp_mode;
 bool initialized;
@@ -130,12 +147,28 @@ audio_output_t *audio_output_create(void)
     ao->mutex = xSemaphoreCreateMutex();
     ao->volume = 70;
     ao->is_a2dp_mode = true;
+    ao->scratch_bytes = AUDIO_SCRATCH_BYTES;
+    ao->a2dp_scratch = calloc(1, AUDIO_SCRATCH_BYTES);
+    if (!ao->a2dp_scratch) {
+        vSemaphoreDelete(ao->mutex);
+        free(ao);
+        return NULL;
+    }
     return ao;
 }
 
 void audio_output_destroy(audio_output_t *ao)
 {
     if (!ao) return;
+    ao->task_running = false;
+    if (ao->audio_task) {
+        vTaskDelete(ao->audio_task);
+        ao->audio_task = NULL;
+    }
+    if (ao->a2dp_ring) {
+        vRingbufferDelete(ao->a2dp_ring);
+        ao->a2dp_ring = NULL;
+    }
     if (ao->tx_handle) {
         i2s_channel_disable(ao->tx_handle);
         i2s_del_channel(ao->tx_handle);
@@ -144,14 +177,96 @@ void audio_output_destroy(audio_output_t *ao)
         i2s_channel_disable(ao->rx_handle);
         i2s_del_channel(ao->rx_handle);
     }
+    if (ao->a2dp_scratch) free(ao->a2dp_scratch);
     if (ao->mutex) vSemaphoreDelete(ao->mutex);
     free(ao);
+}
+
+/* Dedicated audio task: owns EQ/volume DSP + blocking I2S write.
+ * Never runs in BT stack context, so BTC stalls/WDT resets are avoided. */
+static void audio_out_task(void *arg)
+{
+    audio_output_t *ao = (audio_output_t *)arg;
+    while (ao->task_running) {
+        size_t item_len = 0;
+        uint8_t *item = (uint8_t *)xRingbufferReceive(ao->a2dp_ring, &item_len,
+                                                      pdMS_TO_TICKS(100));
+        if (!item) continue;
+        uint32_t frame_len = (uint32_t)item_len;
+        if (frame_len == 0 || frame_len > ao->scratch_bytes) {
+            vRingbufferReturnItem(ao->a2dp_ring, item);
+            ao->drop_count++;
+            continue;
+        }
+        memcpy(ao->a2dp_scratch, item, frame_len);
+        vRingbufferReturnItem(ao->a2dp_ring, item);
+
+        if (ao->mutex) xSemaphoreTake(ao->mutex, portMAX_DELAY);
+        if (!ao->initialized || ao->tx_handle == NULL || ao->muted) {
+            if (ao->mutex) xSemaphoreGive(ao->mutex);
+            continue;
+        }
+
+        int16_t *samples = ao->a2dp_scratch;
+        uint32_t sample_count = frame_len / 2;
+
+        if (ao->eq && eq_processor_is_enabled(ao->eq)) {
+            for (uint32_t i = 0; i + 1 < sample_count; i += 2) {
+                eq_processor_process_frame(ao->eq, &samples[i], &samples[i + 1]);
+            }
+        }
+
+        if (ao->volume < 100) {
+            float scale = ao->volume / 100.0f;
+            for (uint32_t i = 0; i < sample_count; i++) {
+                samples[i] = (int16_t)(samples[i] * scale);
+            }
+        }
+
+        size_t written = 0;
+        esp_err_t ret = i2s_channel_write(ao->tx_handle, samples, frame_len,
+                                          &written, pdMS_TO_TICKS(AUDIO_I2S_WRITE_TIMEOUT_MS));
+        ao->processed_count++;
+        if (ao->processed_count % 500 == 0) {
+            ESP_LOGD(TAG, "A2DP frames processed=%lu dropped=%lu last_len=%lu",
+                     ao->processed_count, ao->drop_count, frame_len);
+        }
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "I2S write failed: %s (written=%u/%lu)",
+                     esp_err_to_name(ret), written, frame_len);
+        }
+        if (ao->mutex) xSemaphoreGive(ao->mutex);
+    }
+    vTaskDelete(NULL);
+}
+
+static bool audio_pipeline_start(audio_output_t *ao)
+{
+    if (!ao || ao->audio_task) return true;
+    if (!ao->a2dp_ring) {
+        ao->a2dp_ring = xRingbufferCreate(AUDIO_RINGBUF_BYTES, RINGBUF_TYPE_BYTEBUF);
+        if (!ao->a2dp_ring) {
+            ESP_LOGE(TAG, "A2DP ringbuffer create failed");
+            return false;
+        }
+    }
+    ao->task_running = true;
+    BaseType_t ok = xTaskCreate(audio_out_task, "audio_out", AUDIO_TASK_STACK,
+                                ao, AUDIO_TASK_PRIO, &ao->audio_task);
+    if (ok != pdPASS) {
+        ESP_LOGE(TAG, "audio_out task create failed");
+        ao->task_running = false;
+        ao->audio_task = NULL;
+        return false;
+    }
+    return true;
 }
 
 esp_err_t audio_output_init(audio_output_t *ao, uint32_t rate)
 {
     if (!ao) return ESP_ERR_INVALID_ARG;
     if (!i2s_configure(ao, rate)) return ESP_FAIL;
+    if (!audio_pipeline_start(ao)) return ESP_FAIL;
     return ESP_OK;
 }
 
@@ -217,43 +332,32 @@ bool audio_output_is_a2dp_mode(const audio_output_t *ao)
     return ao ? ao->is_a2dp_mode : true;
 }
 
-/* Callback danych A2DP - aplikuje EQ, skaluje glosnosc i zapisuje na I2S.
- * TODO: data jest const ale modyfikujemy bufor in-place przez cast - potencjalnie
- * niebezpieczne gdy bufor jest wspoldzielony. Rozwazyc lokalny bufor roboczy. */
+uint32_t audio_output_get_drop_count(const audio_output_t *ao)
+{
+    return ao ? ao->drop_count : 0;
+}
+
+uint32_t audio_output_get_processed_count(const audio_output_t *ao)
+{
+    return ao ? ao->processed_count : 0;
+}
+
+/* A2DP data callback (Bluedroid BTC thread context).
+ * Must never modify `data` in place nor block: copy the frame into the
+ * ringbuffer and return immediately. DSP + I2S write happen in audio_out_task. */
 void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t len)
 {
-    if (!ao || ao->muted || !ao->initialized || ao->tx_handle == NULL) return;
-    if (ao->mutex && !xSemaphoreTake(ao->mutex, pdMS_TO_TICKS(10))) return;
-
-    static uint32_t a2dp_cb_count = 0;
-    a2dp_cb_count++;
-    if (a2dp_cb_count % 500 == 0) {
-        ESP_LOGI(TAG, "A2DP data cb called, len=%lu", len);
+    if (!ao || !data || len == 0) return;
+    if (!ao->a2dp_ring || !ao->task_running) return;
+    if (ao->muted) return;
+    if (len > ao->scratch_bytes) {
+        ao->drop_count++;
+        return;
     }
-
-    int16_t *samples = (int16_t *)data;
-    uint32_t sample_count = len / 2;
-
-    if (ao->eq && eq_processor_is_enabled(ao->eq)) {
-        for (uint32_t i = 0; i < sample_count; i += 2) {
-            eq_processor_process_frame(ao->eq, &samples[i], &samples[i + 1]);
-        }
+    /* Zero-block send: never stall the BT stack; drop + count on overflow. */
+    if (xRingbufferSend(ao->a2dp_ring, data, len, 0) != pdTRUE) {
+        ao->drop_count++;
     }
-
-    if (ao->volume < 100) {
-        float scale = ao->volume / 100.0f;
-        for (uint32_t i = 0; i < sample_count; i++) {
-            samples[i] = (int16_t)(samples[i] * scale);
-        }
-    }
-
-    size_t written = 0;
-    esp_err_t ret = i2s_channel_write(ao->tx_handle, data, len, &written, portMAX_DELAY);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2S write failed: %s (written=%u/%lu)", esp_err_to_name(ret), written, len);
-    }
-
-    if (ao->mutex) xSemaphoreGive(ao->mutex);
 }
 
 void audio_output_hfp_recv_cb(audio_output_t *ao, const uint8_t *data, uint32_t len)
