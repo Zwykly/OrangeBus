@@ -4,13 +4,14 @@
 #include "esp_log.h"
 #include "esp_a2dp_api.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #define TAG "A2DP_SINK"
 
 struct a2dp_sink_t {
+    SemaphoreHandle_t lock;
     orangebus_a2dp_state_t state;
     audio_output_t *audio;
-    orangebus_hfp_state_t *hfp_state_ref;
 };
 
 static a2dp_sink_t *s_instance = NULL;
@@ -32,21 +33,21 @@ static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     switch (event) {
     case ESP_A2D_CONNECTION_STATE_EVT:
         if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
-            sink->state = ORANGEBUS_A2DP_CONNECTED;
+            a2dp_sink_set_state(sink, ORANGEBUS_A2DP_CONNECTED);
             ESP_LOGI(TAG, "A2DP Connected");
         } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
-            sink->state = ORANGEBUS_A2DP_IDLE;
+            a2dp_sink_set_state(sink, ORANGEBUS_A2DP_IDLE);
             ESP_LOGI(TAG, "A2DP Disconnected");
         }
         break;
     case ESP_A2D_AUDIO_STATE_EVT:
         if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_STARTED) {
-            sink->state = ORANGEBUS_A2DP_PLAYING;
+            a2dp_sink_set_state(sink, ORANGEBUS_A2DP_PLAYING);
             audio_output_switch_a2dp(sink->audio);
             audio_output_set_mute(sink->audio, false);
             ESP_LOGI(TAG, "A2DP Playing");
         } else if (param->audio_stat.state == ESP_A2D_AUDIO_STATE_SUSPEND) {
-            sink->state = ORANGEBUS_A2DP_PAUSED;
+            a2dp_sink_set_state(sink, ORANGEBUS_A2DP_PAUSED);
             ESP_LOGI(TAG, "A2DP Suspended");
         }
         break;
@@ -61,12 +62,19 @@ a2dp_sink_t *a2dp_sink_create(audio_output_t *audio)
     a2dp_sink_t *sink = calloc(1, sizeof(a2dp_sink_t));
     if (!sink) return NULL;
     sink->audio = audio;
+    sink->lock = xSemaphoreCreateMutex();
+    if (!sink->lock) {
+        free(sink);
+        return NULL;
+    }
     return sink;
 }
 
 void a2dp_sink_destroy(a2dp_sink_t *sink)
 {
-    if (sink) free(sink);
+    if (!sink) return;
+    if (sink->lock) vSemaphoreDelete(sink->lock);
+    free(sink);
 }
 
 esp_err_t a2dp_sink_init(a2dp_sink_t *sink)
@@ -77,7 +85,21 @@ esp_err_t a2dp_sink_init(a2dp_sink_t *sink)
 
 orangebus_a2dp_state_t a2dp_sink_get_state(const a2dp_sink_t *sink)
 {
-    return sink ? sink->state : ORANGEBUS_A2DP_IDLE;
+    if (!sink) return ORANGEBUS_A2DP_IDLE;
+    a2dp_sink_t *mut = (a2dp_sink_t *)sink;
+    orangebus_a2dp_state_t st = ORANGEBUS_A2DP_IDLE;
+    if (mut->lock) xSemaphoreTake(mut->lock, portMAX_DELAY);
+    st = sink->state;
+    if (mut->lock) xSemaphoreGive(mut->lock);
+    return st;
+}
+
+void a2dp_sink_set_state(a2dp_sink_t *sink, orangebus_a2dp_state_t state)
+{
+    if (!sink) return;
+    if (sink->lock) xSemaphoreTake(sink->lock, portMAX_DELAY);
+    sink->state = state;
+    if (sink->lock) xSemaphoreGive(sink->lock);
 }
 
 orangebus_a2dp_state_t *a2dp_sink_get_state_ptr(a2dp_sink_t *sink)
@@ -98,7 +120,11 @@ const char *a2dp_sink_state_str(orangebus_a2dp_state_t state)
 
 void a2dp_sink_set_hfp_state_ref(a2dp_sink_t *sink, orangebus_hfp_state_t *ref)
 {
-    if (sink) sink->hfp_state_ref = ref;
+    /* Deprecated no-op: the raw HFP pointer was never read and bypassed the
+     * owning module's invariants (CODE_REVIEW 1.6). Kept for ABI compat;
+     * read HFP state via hfp_client_get_state() instead. */
+    (void)sink;
+    (void)ref;
 }
 
 /* Rejestruje callbacki A2DP w stosie Bluetooth i inicjalizuje sink */
