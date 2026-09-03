@@ -1,6 +1,7 @@
 #include "ibus.h"
 #include "ibus_private.h"
 #include <stdlib.h>
+#include <string.h>
 #include "esp_log.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
@@ -9,6 +10,27 @@
 #include "ibus_config.h"
 
 #define TAG "IBUS"
+
+/* Minimum IBUS length field: DST + CMD + CRC. The packet builder uses
+ * len = 3 + dataLen, so 3 is a valid zero-payload frame (CODE_REVIEW 1.4). */
+#define IBUS_MIN_LEN_FIELD 3
+#define IBUS_MAX_LEN_FIELD (ORANGEBUS_IBUS_MAX_PKT - 2)
+
+static bool ibus_len_field_valid(uint8_t pktLen)
+{
+    return pktLen >= IBUS_MIN_LEN_FIELD && pktLen <= IBUS_MAX_LEN_FIELD;
+}
+
+/* Drop the oldest byte and keep the remainder for resync. */
+static void ibus_resync_shift(ibus_t *ibus)
+{
+    if (ibus->rxLen <= 1) {
+        ibus->rxLen = 0;
+        return;
+    }
+    memmove(ibus->rxBuf, ibus->rxBuf + 1, ibus->rxLen - 1);
+    ibus->rxLen--;
+}
 
 uint8_t ibus_crc(const uint8_t *buf, uint8_t len)
 {
@@ -29,13 +51,16 @@ static void dispatch_event(ibus_t *ibus, orangebus_ibus_event_t event, uint8_t *
 /* Dekoduje pakiet I-BUS i wywoluje odpowiednie callbacki zdarzen */
 static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
 {
+    if (!ibus || !pkt) return;
+    if (len < 5 || len > ORANGEBUS_IBUS_MAX_PKT) return;
     uint8_t src = pkt[ORANGEBUS_IBUS_PKT_SRC];
     uint8_t dst = pkt[ORANGEBUS_IBUS_PKT_DST];
     uint8_t cmd = pkt[ORANGEBUS_IBUS_PKT_CMD];
-    uint8_t dataLen = len - 4;
+    /* Payload excludes the trailing CRC byte. */
+    uint8_t dataLen = len - 5;
     uint8_t *data = &pkt[ORANGEBUS_IBUS_PKT_DB1];
 
-    ESP_LOGI(TAG, "RX: SRC=%02X DST=%02X CMD=%02X LEN=%d", src, dst, cmd, dataLen);
+    ESP_LOGD(TAG, "RX: SRC=%02X DST=%02X CMD=%02X LEN=%d", src, dst, cmd, dataLen);
 
     if (src == ORANGEBUS_IBUS_DEV_RAD && cmd == ORANGEBUS_IBUS_CMD_CDC_REQUEST && dst == ORANGEBUS_IBUS_DEV_CDC) {
         if (dataLen > 0 && data[0] != ORANGEBUS_IBUS_CDC_CMD_GET_STATUS) {
@@ -64,6 +89,18 @@ static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
         }
     } else if (src == ORANGEBUS_IBUS_DEV_PDC) {
         dispatch_event(ibus, ORANGEBUS_IBUS_EVT_PDC_STATUS, data, dataLen);
+    } else if (src == ORANGEBUS_IBUS_DEV_GM) {
+        if (cmd == ORANGEBUS_IBUS_CMD_MOD_STATUS_RESP) {
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_GM_STATUS, data, dataLen);
+        } else if (cmd == ORANGEBUS_IBUS_GM_CMD_REMOTE) {
+            if (dataLen >= 1) {
+                dispatch_event(ibus, ORANGEBUS_IBUS_EVT_DOOR_LOCK, data, dataLen);
+            }
+        }
+    } else if (src == ORANGEBUS_IBUS_DEV_LCM) {
+        if (cmd == ORANGEBUS_IBUS_CMD_MOD_STATUS_RESP) {
+            dispatch_event(ibus, ORANGEBUS_IBUS_EVT_LM_STATUS, data, dataLen);
+        }
     }
 }
 
@@ -72,6 +109,11 @@ ibus_t *ibus_create(ibus_config_t *config)
     ibus_t *ibus = calloc(1, sizeof(ibus_t));
     if (!ibus) return NULL;
     ibus->config = config;
+    ibus->txMutex = xSemaphoreCreateMutex();
+    if (!ibus->txMutex) {
+        free(ibus);
+        return NULL;
+    }
     return ibus;
 }
 
@@ -81,6 +123,9 @@ void ibus_destroy(ibus_t *ibus)
         if (ibus->uart_installed) {
             uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
         }
+        ibus->uartQueue = NULL;
+        ibus->uart_installed = false;
+        if (ibus->txMutex) vSemaphoreDelete(ibus->txMutex);
         free(ibus);
     }
 }
@@ -99,7 +144,8 @@ esp_err_t ibus_init(ibus_t *ibus)
     };
 
     esp_err_t ret = uart_driver_install(ORANGEBUS_IBUS_UART_NUM,
-        ORANGEBUS_IBUS_RX_BUF_SIZE, ORANGEBUS_IBUS_TX_BUF_SIZE, 0, NULL, 0);
+        ORANGEBUS_IBUS_RX_BUF_SIZE, ORANGEBUS_IBUS_TX_BUF_SIZE,
+        IBUS_UART_QUEUE_LEN, &ibus->uartQueue, 0);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "UART driver install failed: %s. I-BUS unavailable, continuing...", esp_err_to_name(ret));
         ibus->uart_installed = false;
@@ -141,12 +187,65 @@ void ibus_register_callback(ibus_t *ibus, orangebus_ibus_event_t event, orangebu
     }
 }
 
+/* Drains pending UART events without blocking. Returns true when a data
+ * event was seen. Overflow/buffer-full events reset the assembler so a noisy
+ * bus cannot wedge the parser (CODE_REVIEW 3.3). */
+static bool ibus_drain_events(ibus_t *ibus)
+{
+    if (!ibus->uartQueue) return false;
+    bool dataSeen = false;
+    uart_event_t evt;
+    while (xQueueReceive(ibus->uartQueue, &evt, 0) == pdTRUE) {
+        switch (evt.type) {
+        case UART_DATA:
+            dataSeen = true;
+            break;
+        case UART_FIFO_OVF:
+        case UART_BUFFER_FULL:
+            ibus->rxLen = 0;
+            uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
+            xQueueReset(ibus->uartQueue);
+            break;
+        case UART_PARITY_ERR:
+        case UART_FRAME_ERR:
+            break;
+        default:
+            break;
+        }
+    }
+    return dataSeen;
+}
+
+/* Blocks up to timeout_ms for RX activity. Lets ibus_task sleep instead of
+ * spinning on a fixed 10 ms poll while keeping 100 ms tick granularity. */
+bool ibus_wait_for_data(ibus_t *ibus, uint32_t timeout_ms)
+{
+    if (!ibus || !ibus->uart_installed || !ibus->uartQueue) {
+        vTaskDelay(pdMS_TO_TICKS(timeout_ms));
+        return false;
+    }
+    if (ibus_drain_events(ibus)) return true;
+    uart_event_t evt;
+    if (xQueueReceive(ibus->uartQueue, &evt, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+        return false;
+    }
+    bool dataSeen = (evt.type == UART_DATA);
+    if (evt.type == UART_FIFO_OVF || evt.type == UART_BUFFER_FULL) {
+        ibus->rxLen = 0;
+        uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
+        xQueueReset(ibus->uartQueue);
+    }
+    if (!dataSeen) dataSeen = ibus_drain_events(ibus);
+    return dataSeen;
+}
+
 /* Odczytuje dane z UART i skladaje pakiety I-BUS z weryfikacja CRC */
 void ibus_process(ibus_t *ibus)
 {
     if (!ibus) return;
     if (ibus->debugMode) return;
     if (!ibus->uart_installed) return;
+    ibus_drain_events(ibus);
     uint8_t buf[32];
     int readLen;
     while ((readLen = uart_read_bytes(ORANGEBUS_IBUS_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(10))) > 0) {
@@ -168,19 +267,41 @@ void ibus_process(ibus_t *ibus)
             }
             ibus->rxLastByte = now;
             if (ibus->rxLen >= ORANGEBUS_IBUS_MAX_PKT) {
-                ibus->rxLen = 0;
+                ibus_resync_shift(ibus);
                 continue;
             }
             ibus->rxBuf[ibus->rxLen++] = b;
-            if (ibus->rxLen >= 3) {
+            if (ibus->rxLen >= 2) {
                 uint8_t pktLen = ibus->rxBuf[ORANGEBUS_IBUS_PKT_LEN];
+                if (!ibus_len_field_valid(pktLen)) {
+                    /* Corrupted length byte: resync byte-by-byte so the
+                     * remainder of the stream can still yield valid frames. */
+                    ibus_resync_shift(ibus);
+                    continue;
+                }
                 uint8_t expectedTotal = pktLen + 2;
                 if (ibus->rxLen >= expectedTotal) {
                     uint8_t calcCrc = ibus_crc(ibus->rxBuf, expectedTotal - 1);
                     if (calcCrc == ibus->rxBuf[expectedTotal - 1]) {
-                        process_packet(ibus, ibus->rxBuf, expectedTotal);
+                        /* Echo filter: most transceivers loop our own TX back
+                         * on RX; drop byte-identical frames seen shortly
+                         * after transmission instead of dispatching them.
+                         * Snapshot once: the TX side may update these fields
+                         * from another task between the individual reads. */
+                        uint8_t snapLen = ibus->lastTxLen;
+                        uint32_t snapMs = ibus->lastTxMs;
+                        bool isEcho = (snapLen == expectedTotal
+                            && snapLen > 0
+                            && (now - snapMs) <= 100
+                            && memcmp(ibus->rxBuf, ibus->lastTxBuf, expectedTotal) == 0);
+                        if (!isEcho) {
+                            process_packet(ibus, ibus->rxBuf, expectedTotal);
+                        }
+                        ibus->rxLen = 0;
+                    } else {
+                        /* CRC mismatch: first byte was not a real SOF. */
+                        ibus_resync_shift(ibus);
                     }
-                    ibus->rxLen = 0;
                 }
             }
         }

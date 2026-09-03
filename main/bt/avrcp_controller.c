@@ -1,4 +1,5 @@
 #include "avrcp_controller.h"
+#include "a2dp_sink.h"
 #include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
@@ -7,6 +8,7 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 
 #define TAG "AVRCP_CTL"
 
@@ -22,10 +24,12 @@ struct avrcp_controller_t {
     TaskHandle_t worker_task;
     TickType_t last_cmd_tick;
     uint32_t txn_count;
+    SemaphoreHandle_t metaMutex;
     orangebus_metadata_t metadata;
     uint8_t meta_field_count;
     TimerHandle_t meta_timer;
     bool meta_requesting;
+    struct a2dp_sink_t *a2dp_sink;
     orangebus_a2dp_state_t *a2dp_state_ref;
 };
 
@@ -40,19 +44,26 @@ static uint8_t next_txn_label(avrcp_controller_t *ac)
 
 static void notify_metadata(avrcp_controller_t *ac)
 {
+    /* Snapshot under the mutex: writers in on_avrcp_meta run in BTC context. */
+    orangebus_metadata_t snap;
+    if (ac->metaMutex) xSemaphoreTake(ac->metaMutex, portMAX_DELAY);
+    memcpy(&snap, &ac->metadata, sizeof(snap));
+    if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
     ESP_LOGI(TAG, "Metadata: \"%s\" by %s (%s)",
-             ac->metadata.title[0] ? ac->metadata.title : "-",
-             ac->metadata.artist[0] ? ac->metadata.artist : "-",
-             ac->metadata.album[0] ? ac->metadata.album : "-");
+             snap.title[0] ? snap.title : "-",
+             snap.artist[0] ? snap.artist : "-",
+             snap.album[0] ? snap.album : "-");
 }
 
 static void request_metadata_impl(avrcp_controller_t *ac)
 {
+    if (ac->metaMutex) xSemaphoreTake(ac->metaMutex, portMAX_DELAY);
     ac->meta_field_count = 0;
     ac->metadata.title[0]  = '\0';
     ac->metadata.artist[0] = '\0';
     ac->metadata.album[0]  = '\0';
     ac->meta_requesting = true;
+    if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
     esp_avrc_ct_send_metadata_cmd(next_txn_label(ac), ESP_AVRC_MD_ATTR_TITLE);
     esp_avrc_ct_send_metadata_cmd(next_txn_label(ac), ESP_AVRC_MD_ATTR_ARTIST);
     esp_avrc_ct_send_metadata_cmd(next_txn_label(ac), ESP_AVRC_MD_ATTR_ALBUM);
@@ -61,10 +72,13 @@ static void request_metadata_impl(avrcp_controller_t *ac)
 static void meta_timer_cb(TimerHandle_t timer)
 {
     avrcp_controller_t *ac = s_instance;
-    if (ac && ac->meta_requesting) {
-        notify_metadata(ac);
-        ac->meta_requesting = false;
-    }
+    if (!ac) return;
+    bool pending = false;
+    if (ac->metaMutex) xSemaphoreTake(ac->metaMutex, portMAX_DELAY);
+    pending = ac->meta_requesting;
+    ac->meta_requesting = false;
+    if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
+    if (pending) notify_metadata(ac);
 }
 
 static void on_avrcp_meta(avrcp_controller_t *ac, uint8_t attr_id, const uint8_t *val, uint8_t len)
@@ -74,6 +88,7 @@ static void on_avrcp_meta(avrcp_controller_t *ac, uint8_t attr_id, const uint8_t
     memcpy(buf, val, len);
     buf[len] = '\0';
 
+    if (ac->metaMutex) xSemaphoreTake(ac->metaMutex, portMAX_DELAY);
     switch (attr_id) {
     case ESP_AVRC_MD_ATTR_TITLE:
         strncpy(ac->metadata.title, buf, 80);
@@ -91,12 +106,18 @@ static void on_avrcp_meta(avrcp_controller_t *ac, uint8_t attr_id, const uint8_t
         ac->meta_field_count |= 0x04;
         break;
     default:
+        if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
         return;
     }
 
-    if (ac->meta_field_count == 0x07) {
+    bool complete = (ac->meta_field_count == 0x07);
+    if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
+
+    if (complete) {
         notify_metadata(ac);
+        if (ac->metaMutex) xSemaphoreTake(ac->metaMutex, portMAX_DELAY);
         ac->meta_requesting = false;
+        if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
         if (ac->meta_timer) xTimerStop(ac->meta_timer, 0);
     } else if (ac->meta_timer) {
         xTimerReset(ac->meta_timer, 0);
@@ -149,8 +170,10 @@ static void avrcp_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *pa
             ESP_LOGI(TAG, "AVRCP Connected");
         } else {
             ESP_LOGI(TAG, "AVRCP Disconnected");
+            if (ac->metaMutex) xSemaphoreTake(ac->metaMutex, portMAX_DELAY);
             ac->metadata.title[0] = ac->metadata.artist[0] = ac->metadata.album[0] = '\0';
             ac->meta_field_count = 0;
+            if (ac->metaMutex) xSemaphoreGive(ac->metaMutex);
         }
         break;
     case ESP_AVRC_CT_REMOTE_FEATURES_EVT:
@@ -183,10 +206,18 @@ static void avrcp_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *pa
             esp_avrc_ct_send_register_notification_cmd(next_txn_label(ac), ESP_AVRC_RN_TRACK_CHANGE, 0);
         } else if (param->change_ntf.event_id == ESP_AVRC_RN_PLAY_STATUS_CHANGE) {
             esp_avrc_playback_stat_t play_status = param->change_ntf.event_parameter.playback;
-            if (play_status == ESP_AVRC_PLAYBACK_PLAYING && ac->a2dp_state_ref) {
-                *ac->a2dp_state_ref = ORANGEBUS_A2DP_PLAYING;
-            } else if (play_status == ESP_AVRC_PLAYBACK_PAUSED && ac->a2dp_state_ref) {
-                *ac->a2dp_state_ref = ORANGEBUS_A2DP_PAUSED;
+            if (play_status == ESP_AVRC_PLAYBACK_PLAYING) {
+                if (ac->a2dp_sink) {
+                    a2dp_sink_set_state(ac->a2dp_sink, ORANGEBUS_A2DP_PLAYING);
+                } else if (ac->a2dp_state_ref) {
+                    *ac->a2dp_state_ref = ORANGEBUS_A2DP_PLAYING;
+                }
+            } else if (play_status == ESP_AVRC_PLAYBACK_PAUSED) {
+                if (ac->a2dp_sink) {
+                    a2dp_sink_set_state(ac->a2dp_sink, ORANGEBUS_A2DP_PAUSED);
+                } else if (ac->a2dp_state_ref) {
+                    *ac->a2dp_state_ref = ORANGEBUS_A2DP_PAUSED;
+                }
             }
             ESP_LOGI(TAG, "Play status: %d", play_status);
             esp_avrc_ct_send_register_notification_cmd(next_txn_label(ac), ESP_AVRC_RN_PLAY_STATUS_CHANGE, 0);
@@ -202,6 +233,11 @@ avrcp_controller_t *avrcp_controller_create(void)
 {
     avrcp_controller_t *ac = calloc(1, sizeof(avrcp_controller_t));
     if (!ac) return NULL;
+    ac->metaMutex = xSemaphoreCreateMutex();
+    if (!ac->metaMutex) {
+        free(ac);
+        return NULL;
+    }
     return ac;
 }
 
@@ -211,6 +247,7 @@ void avrcp_controller_destroy(avrcp_controller_t *ac)
     if (ac->meta_timer) xTimerDelete(ac->meta_timer, 0);
     if (ac->cmd_queue) vQueueDelete(ac->cmd_queue);
     if (ac->worker_task) vTaskDelete(ac->worker_task);
+    if (ac->metaMutex) vSemaphoreDelete(ac->metaMutex);
     free(ac);
 }
 
@@ -250,9 +287,27 @@ const orangebus_metadata_t *avrcp_controller_get_metadata(const avrcp_controller
     return ac ? &ac->metadata : NULL;
 }
 
+/* Snapshot copy under the metadata mutex: use this from non-BTC tasks
+ * (e.g. ibus_task) instead of strcmp on the live pointer (CODE_REVIEW 1.6). */
+void avrcp_controller_copy_metadata(const avrcp_controller_t *ac, orangebus_metadata_t *out)
+{
+    if (!ac || !out) return;
+    avrcp_controller_t *mut = (avrcp_controller_t *)ac;
+    if (mut->metaMutex) xSemaphoreTake(mut->metaMutex, portMAX_DELAY);
+    memcpy(out, &ac->metadata, sizeof(*out));
+    if (mut->metaMutex) xSemaphoreGive(mut->metaMutex);
+}
+
 void avrcp_controller_set_a2dp_state_ref(avrcp_controller_t *ac, orangebus_a2dp_state_t *ref)
 {
     if (ac) ac->a2dp_state_ref = ref;
+}
+
+/* Preferred wiring: pass the sink object so play-status updates go through
+ * the locked a2dp_sink_set_state() setter instead of a raw pointer. */
+void avrcp_controller_set_a2dp_sink(avrcp_controller_t *ac, struct a2dp_sink_t *sink)
+{
+    if (ac) ac->a2dp_sink = sink;
 }
 
 orangebus_a2dp_state_t *avrcp_controller_get_a2dp_state_ref(avrcp_controller_t *ac)
