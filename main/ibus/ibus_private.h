@@ -4,6 +4,7 @@
 #include "ibus.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 
 #define IBUS_UART_QUEUE_LEN 20
 
@@ -14,6 +15,10 @@ struct ibus_t {
     uint32_t rxLastByte;
     orangebus_ibus_cb_t callbacks[ORANGEBUS_IBUS_EVT_COUNT];
     uint8_t txBuf[ORANGEBUS_IBUS_MAX_PKT];
+    SemaphoreHandle_t txMutex;
+    uint8_t lastTxBuf[ORANGEBUS_IBUS_MAX_PKT];
+    uint8_t lastTxLen;
+    uint32_t lastTxMs;
     QueueHandle_t uartQueue;
     bool debugMode;
     bool uart_installed;

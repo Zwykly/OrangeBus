@@ -148,6 +148,33 @@ static void on_volume_change(uint8_t *data, uint8_t len)
     }
 }
 
+/* Callback: status GM (wariant ZKE) - wykrywanie sprzetu dla komfortu */
+static void on_gm_status(uint8_t *data, uint8_t len)
+{
+    ibus_ctx_t *ic = s_ibus_ctx;
+    comfort_on_gm_status(ic->comfort, data, len);
+}
+
+/* Callback: status LCM (wariant swiatel) - wykrywanie sprzetu dla komfortu */
+static void on_lm_status(uint8_t *data, uint8_t len)
+{
+    ibus_ctx_t *ic = s_ibus_ctx;
+    comfort_on_lm_status(ic->comfort, data, len);
+}
+
+/* Callback: remote central-locking button frame from GM (device 0x00).
+ * Command 0x72 with payload 0x12 = lock, 0x11 = unlock. */
+static void on_door_lock(uint8_t *data, uint8_t len)
+{
+    ibus_ctx_t *ic = s_ibus_ctx;
+    if (len < 1) return;
+    if (data[0] == ORANGEBUS_IBUS_GM_REMOTE_LOCK) {
+        comfort_on_door_lock(ic->comfort, true);
+    } else if (data[0] == ORANGEBUS_IBUS_GM_REMOTE_UNLOCK) {
+        comfort_on_door_lock(ic->comfort, false);
+    }
+}
+
 /* Aktywuje interfejs UI zgodnie z konfiguracja (ui_mode), deaktywuje pozostale */
 static void set_active_ui(ibus_ctx_t *ic)
 {
@@ -260,8 +287,9 @@ static void ibus_task(void *arg)
                 orangebus_a2dp_state_t prev = ic->lastA2dpState;
                 ic->lastA2dpState = a2dpState;
                 if (a2dpState == ORANGEBUS_A2DP_PLAYING) {
-                    const orangebus_metadata_t *meta = avrcp_controller_get_metadata(ic->avrcp);
-                    send_metadata_to_ui(ic, meta, true);
+                    orangebus_metadata_t metaCopy;
+                    avrcp_controller_copy_metadata(ic->avrcp, &metaCopy);
+                    send_metadata_to_ui(ic, &metaCopy, true);
                     ui_bmbt_on_playback(ic->uiBmbt, true);
                 } else if (a2dpState == ORANGEBUS_A2DP_PAUSED || a2dpState == ORANGEBUS_A2DP_CONNECTED) {
                     ui_bmbt_on_playback(ic->uiBmbt, false);
@@ -275,13 +303,14 @@ static void ibus_task(void *arg)
                 }
             }
 
-            const orangebus_metadata_t *meta = avrcp_controller_get_metadata(ic->avrcp);
-            if (meta && (strcmp(meta->title, ic->lastTitle) != 0 || strcmp(meta->artist, ic->lastArtist) != 0)) {
-                strncpy(ic->lastTitle, meta->title, sizeof(ic->lastTitle) - 1);
+            orangebus_metadata_t metaCopy;
+            avrcp_controller_copy_metadata(ic->avrcp, &metaCopy);
+            if (strcmp(metaCopy.title, ic->lastTitle) != 0 || strcmp(metaCopy.artist, ic->lastArtist) != 0) {
+                strncpy(ic->lastTitle, metaCopy.title, sizeof(ic->lastTitle) - 1);
                 ic->lastTitle[sizeof(ic->lastTitle) - 1] = '\0';
-                strncpy(ic->lastArtist, meta->artist, sizeof(ic->lastArtist) - 1);
+                strncpy(ic->lastArtist, metaCopy.artist, sizeof(ic->lastArtist) - 1);
                 ic->lastArtist[sizeof(ic->lastArtist) - 1] = '\0';
-                send_metadata_to_ui(ic, meta, a2dpState == ORANGEBUS_A2DP_PLAYING);
+                send_metadata_to_ui(ic, &metaCopy, a2dpState == ORANGEBUS_A2DP_PLAYING);
             }
 
             orangebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
@@ -312,9 +341,8 @@ static void ibus_task(void *arg)
     }
 }
 
-/* TODO: Callbacki comfort_on_door_lock/gm_status/lm_status sa zdefiniowane
- * w module comfort ale nigdzie nie zarejestrowane w ibus_register_callback.
- * Funkcje komfortu (auto-lock, skladanie lusterek) sa obecnie martwym kodem. */
+/* Comfort callbacks (door lock, GM/LCM variant detection) are wired to the
+ * I-BUS dispatcher below; variant pings are polled in comfort_tick. */
 
 void app_run(void)
 {
@@ -344,12 +372,10 @@ void app_run(void)
     a2dp_sink_t *a2dp = a2dp_sink_create(audio);
     a2dp_sink_init(a2dp);
 
-    avrcp_controller_set_a2dp_state_ref(avrcp, a2dp_sink_get_state_ptr(a2dp));
+    avrcp_controller_set_a2dp_sink(avrcp, a2dp);
 
     hfp_client_t *hfp = hfp_client_create(audio, avrcp, a2dp);
     hfp_client_init(hfp);
-
-    a2dp_sink_set_hfp_state_ref(a2dp, hfp_client_get_state_ptr(hfp));
 
     esp_err_t ret = avrcp_controller_register_callbacks(avrcp);
     ESP_LOGI(TAG, "AVRCP CT init: %s", esp_err_to_name(ret));
@@ -366,6 +392,10 @@ void app_run(void)
     ibus_config_init(ibusConfig);
 
     ibus_t *ibus = ibus_create(ibusConfig);
+    if (!ibus) {
+        ESP_LOGE(TAG, "I-BUS create failed (low heap), aborting init");
+        return;
+    }
     ibus_init(ibus);
 
     cdc_t *cdc = cdc_create(ibus, ibusConfig);
@@ -410,6 +440,9 @@ void app_run(void)
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_MFL_BUTTON_PRESS, on_mfl_button);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_IGNITION_STATUS, on_ignition_status);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_VOLUME_CHANGE, on_volume_change);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_GM_STATUS, on_gm_status);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_LM_STATUS, on_lm_status);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_DOOR_LOCK, on_door_lock);
 
     set_active_ui(ic);
 

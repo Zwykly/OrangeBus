@@ -20,6 +20,7 @@ struct spp_server_t {
     avrcp_controller_t *avrcp;
     volatile bool *uiModeChanged;
     SemaphoreHandle_t dataReady;
+    SemaphoreHandle_t bufMutex;
     char cmd_buf[SPP_MAX_CMD];
     int cmd_len;
 };

@@ -22,7 +22,8 @@ void spp_send_response(spp_server_t *spp, const char *msg)
 }
 
 /* Zadanie przetwarzajace przychodzace komendy - budzone semaforem z callbacku
- * SPP zamiast sztywnego pollingu co 10 ms (CODE_REVIEW 3.3). */
+ * SPP zamiast sztywnego pollingu co 10 ms (CODE_REVIEW 3.3), z dostepem do
+ * bufora serializowanym przez bufMutex (CODE_REVIEW 1.6). */
 static void spp_cmd_task(void *arg)
 {
     spp_server_t *spp = (spp_server_t *)arg;
@@ -32,6 +33,7 @@ static void spp_cmd_task(void *arg)
         } else {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
+        if (spp->bufMutex) xSemaphoreTake(spp->bufMutex, portMAX_DELAY);
         if (spp->cmd_len > 0) {
             spp->cmd_buf[spp->cmd_len] = '\0';
 
@@ -56,6 +58,7 @@ static void spp_cmd_task(void *arg)
             }
             spp->cmd_len = remaining;
         }
+        if (spp->bufMutex) xSemaphoreGive(spp->bufMutex);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -91,11 +94,21 @@ static void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
     case ESP_SPP_DATA_IND_EVT:
         if (param->data_ind.len > 0) {
-            int space = SPP_MAX_CMD - 1 - spp->cmd_len;
-            int copy = (param->data_ind.len < space) ? param->data_ind.len : space;
-            if (copy > 0) {
-                memcpy(spp->cmd_buf + spp->cmd_len, param->data_ind.data, copy);
-                spp->cmd_len += copy;
+            /* BTC thread: never block; drop on contention (task holds the
+             * mutex only for a short parse/memmove). */
+            bool taken = spp->bufMutex
+                ? (xSemaphoreTake(spp->bufMutex, 0) == pdTRUE)
+                : true;
+            if (taken) {
+                int space = SPP_MAX_CMD - 1 - spp->cmd_len;
+                int copy = (param->data_ind.len < space) ? param->data_ind.len : space;
+                if (copy > 0) {
+                    memcpy(spp->cmd_buf + spp->cmd_len, param->data_ind.data, copy);
+                    spp->cmd_len += copy;
+                }
+                if (spp->bufMutex) xSemaphoreGive(spp->bufMutex);
+            } else {
+                ESP_LOGW(TAG, "SPP data dropped: cmd buffer busy");
             }
             if (spp->dataReady) xSemaphoreGive(spp->dataReady);
         }
@@ -119,7 +132,10 @@ spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, te
     spp->avrcp = avrcp;
     spp->uiModeChanged = uiModeChanged;
     spp->dataReady = xSemaphoreCreateBinary();
-    if (!spp->dataReady) {
+    spp->bufMutex = xSemaphoreCreateMutex();
+    if (!spp->dataReady || !spp->bufMutex) {
+        if (spp->dataReady) vSemaphoreDelete(spp->dataReady);
+        if (spp->bufMutex) vSemaphoreDelete(spp->bufMutex);
         free(spp);
         return NULL;
     }
@@ -129,7 +145,9 @@ spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, te
 void spp_server_destroy(spp_server_t *spp)
 {
     if (!spp) return;
+    if (s_instance == spp) s_instance = NULL;
     if (spp->dataReady) vSemaphoreDelete(spp->dataReady);
+    if (spp->bufMutex) vSemaphoreDelete(spp->bufMutex);
     free(spp);
 }
 

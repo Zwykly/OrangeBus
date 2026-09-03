@@ -35,6 +35,7 @@ typedef struct {
 struct eq_processor_t {
     eq_band_t bands[EQ_BANDS];
     bool enabled;
+    bool flat;
     uint32_t sample_rate;
 };
 
@@ -58,6 +59,18 @@ static void calc_biquad_peaking(eq_coeff_t *c, float freq, float q, float gain_d
 static void update_band_coeff(eq_band_t *band, uint32_t sr)
 {
     calc_biquad_peaking(&band->coeff, band->params.freq, band->params.q, band->params.gain_db, sr);
+}
+
+static void update_flat_flag(eq_processor_t *eq)
+{
+    for (int i = 0; i < EQ_BANDS; i++) {
+        float g = eq->bands[i].params.gain_db;
+        if (g > 0.001f || g < -0.001f) {
+            eq->flat = false;
+            return;
+        }
+    }
+    eq->flat = true;
 }
 
 static void reset_state(eq_state_t *s)
@@ -105,6 +118,7 @@ esp_err_t eq_processor_init(eq_processor_t *eq, uint32_t sample_rate)
         reset_state(&eq->bands[i].state_l);
         reset_state(&eq->bands[i].state_r);
     }
+    update_flat_flag(eq);
 
     ESP_LOGI(TAG, "Init: %luHz, %d bands, enabled=%d", sample_rate, EQ_BANDS, eq->enabled);
     return ESP_OK;
@@ -119,6 +133,7 @@ void eq_processor_set_band(eq_processor_t *eq, int index, float freq, float q, f
     update_band_coeff(&eq->bands[index], eq->sample_rate);
     reset_state(&eq->bands[index].state_l);
     reset_state(&eq->bands[index].state_r);
+    update_flat_flag(eq);
 }
 
 const eq_band_params_t *eq_processor_get_band(const eq_processor_t *eq, int index)
@@ -137,9 +152,14 @@ bool eq_processor_is_enabled(const eq_processor_t *eq)
     return eq ? eq->enabled : false;
 }
 
+bool eq_processor_is_flat(const eq_processor_t *eq)
+{
+    return eq ? eq->flat : true;
+}
+
 void eq_processor_process_frame(eq_processor_t *eq, int16_t *left, int16_t *right)
 {
-    if (!eq || !eq->enabled) return;
+    if (!eq || !eq->enabled || eq->flat) return;
 
     float in_l = (float)*left / 32768.0f;
     float in_r = (float)*right / 32768.0f;
@@ -232,6 +252,7 @@ esp_err_t eq_processor_load_preset(eq_processor_t *eq, const char *name)
         reset_state(&eq->bands[i].state_l);
         reset_state(&eq->bands[i].state_r);
     }
+    update_flat_flag(eq);
 
     ESP_LOGI(TAG, "Preset '%s' loaded", name);
     return ESP_OK;
