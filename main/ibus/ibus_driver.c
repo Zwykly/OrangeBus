@@ -38,7 +38,7 @@ static void process_packet(ibus_t *ibus, uint8_t *pkt, uint8_t len)
     uint8_t dataLen = len - 4;
     uint8_t *data = &pkt[ORANGEBUS_IBUS_PKT_DB1];
 
-    ESP_LOGI(TAG, "RX: SRC=%02X DST=%02X CMD=%02X LEN=%d", src, dst, cmd, dataLen);
+    ESP_LOGD(TAG, "RX: SRC=%02X DST=%02X CMD=%02X LEN=%d", src, dst, cmd, dataLen);
 
     if (src == ORANGEBUS_IBUS_DEV_RAD && cmd == ORANGEBUS_IBUS_CMD_CDC_REQUEST && dst == ORANGEBUS_IBUS_DEV_CDC) {
         if (dataLen > 0 && data[0] != ORANGEBUS_IBUS_CDC_CMD_GET_STATUS) {

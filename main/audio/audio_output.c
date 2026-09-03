@@ -228,7 +228,7 @@ void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t
     static uint32_t a2dp_cb_count = 0;
     a2dp_cb_count++;
     if (a2dp_cb_count % 500 == 0) {
-        ESP_LOGI(TAG, "A2DP data cb called, len=%lu", len);
+        ESP_LOGD(TAG, "A2DP data cb called, len=%lu", len);
     }
 
     int16_t *samples = (int16_t *)data;
