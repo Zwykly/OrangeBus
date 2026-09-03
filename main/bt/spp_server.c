@@ -21,12 +21,18 @@ void spp_send_response(spp_server_t *spp, const char *msg)
     esp_spp_write(spp->handle, (int)strlen(msg), (uint8_t *)msg);
 }
 
-/* Zadanie przetwarzajace przychodzace komendy - dzieli bufor na linie CR/LF.
- * Serialized with the SPP data callback via bufMutex (CODE_REVIEW 1.6). */
+/* Zadanie przetwarzajace przychodzace komendy - budzone semaforem z callbacku
+ * SPP zamiast sztywnego pollingu co 10 ms (CODE_REVIEW 3.3), z dostepem do
+ * bufora serializowanym przez bufMutex (CODE_REVIEW 1.6). */
 static void spp_cmd_task(void *arg)
 {
     spp_server_t *spp = (spp_server_t *)arg;
     while (1) {
+        if (spp->dataReady) {
+            xSemaphoreTake(spp->dataReady, pdMS_TO_TICKS(10));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
         if (spp->bufMutex) xSemaphoreTake(spp->bufMutex, portMAX_DELAY);
         if (spp->cmd_len > 0) {
             spp->cmd_buf[spp->cmd_len] = '\0';
@@ -104,6 +110,7 @@ static void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             } else {
                 ESP_LOGW(TAG, "SPP data dropped: cmd buffer busy");
             }
+            if (spp->dataReady) xSemaphoreGive(spp->dataReady);
         }
         break;
 
@@ -124,8 +131,11 @@ spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, te
     spp->comfort = comfort;
     spp->avrcp = avrcp;
     spp->uiModeChanged = uiModeChanged;
+    spp->dataReady = xSemaphoreCreateBinary();
     spp->bufMutex = xSemaphoreCreateMutex();
-    if (!spp->bufMutex) {
+    if (!spp->dataReady || !spp->bufMutex) {
+        if (spp->dataReady) vSemaphoreDelete(spp->dataReady);
+        if (spp->bufMutex) vSemaphoreDelete(spp->bufMutex);
         free(spp);
         return NULL;
     }
@@ -136,6 +146,7 @@ void spp_server_destroy(spp_server_t *spp)
 {
     if (!spp) return;
     if (s_instance == spp) s_instance = NULL;
+    if (spp->dataReady) vSemaphoreDelete(spp->dataReady);
     if (spp->bufMutex) vSemaphoreDelete(spp->bufMutex);
     free(spp);
 }

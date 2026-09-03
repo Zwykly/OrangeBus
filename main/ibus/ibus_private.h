@@ -3,7 +3,10 @@
 
 #include "ibus.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
+
+#define IBUS_UART_QUEUE_LEN 20
 
 /* Definicja struktury ibus_t - wspoldzielona miedzy modulami implementacji */
 struct ibus_t {
@@ -16,6 +19,7 @@ struct ibus_t {
     uint8_t lastTxBuf[ORANGEBUS_IBUS_MAX_PKT];
     uint8_t lastTxLen;
     uint32_t lastTxMs;
+    QueueHandle_t uartQueue;
     bool debugMode;
     bool uart_installed;
     ibus_config_t *config;
