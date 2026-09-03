@@ -208,7 +208,10 @@ static void audio_out_task(void *arg)
         eq_processor_t *eq = NULL;
         uint8_t volume = 100;
         if (ao->mutex) xSemaphoreTake(ao->mutex, portMAX_DELAY);
-        bool ready = ao->initialized && ao->tx_handle != NULL && !ao->muted;
+        /* Re-check mode under the lock: I2S may have switched to SCO rates
+         * after the frame was enqueued (CODE_REVIEW 1.7). */
+        bool ready = ao->initialized && ao->tx_handle != NULL && !ao->muted
+            && ao->is_a2dp_mode;
         if (ready) {
             eq = ao->eq;
             volume = ao->volume;
@@ -368,6 +371,9 @@ void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t
     if (!ao || !data || len == 0) return;
     if (!ao->a2dp_ring || !ao->task_running) return;
     if (ao->muted) return;
+    /* Drop 44.1 kHz A2DP frames while I2S runs at 8/16 kHz SCO rates;
+     * otherwise call audio is severely distorted (CODE_REVIEW 1.7). */
+    if (!ao->is_a2dp_mode) return;
     if (len > ao->scratch_bytes) {
         atomic_fetch_add(&ao->drop_count, 1);
         return;
@@ -380,8 +386,14 @@ void audio_output_a2dp_data_cb(audio_output_t *ao, const uint8_t *data, uint32_t
 
 void audio_output_hfp_recv_cb(audio_output_t *ao, const uint8_t *data, uint32_t len)
 {
-    if (!ao || ao->muted || !ao->initialized || ao->tx_handle == NULL) return;
+    if (!ao || !data || len == 0) return;
     if (ao->mutex && !xSemaphoreTake(ao->mutex, pdMS_TO_TICKS(10))) return;
+    /* Mode gate under the mutex so a concurrent switch cannot slip an SCO
+     * frame into an A2DP-configured channel (CODE_REVIEW 1.7). */
+    if (ao->muted || !ao->initialized || ao->tx_handle == NULL || ao->is_a2dp_mode) {
+        if (ao->mutex) xSemaphoreGive(ao->mutex);
+        return;
+    }
 
     uint32_t mono_samples = len / 2;
     if (mono_samples > 240) mono_samples = 240;
