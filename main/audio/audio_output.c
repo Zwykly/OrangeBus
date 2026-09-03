@@ -222,7 +222,7 @@ static void audio_out_task(void *arg)
         int16_t *samples = ao->a2dp_scratch;
         uint32_t sample_count = frame_len / 2;
 
-        if (eq && eq_processor_is_enabled(eq)) {
+        if (eq && eq_processor_is_enabled(eq) && !eq_processor_is_flat(eq)) {
             for (uint32_t i = 0; i + 1 < sample_count; i += 2) {
                 eq_processor_process_frame(eq, &samples[i], &samples[i + 1]);
             }
