@@ -137,7 +137,8 @@ esp_err_t spp_server_init(spp_server_t *spp)
         return ret;
     }
 
-    xTaskCreate(spp_cmd_task, "spp_cmd", 4096, spp, 5, NULL);
+    /* Below ibus_task so bulk SPP parsing never delays radio polls. */
+    xTaskCreate(spp_cmd_task, "spp_cmd", 4096, spp, 4, NULL);
     ESP_LOGI(TAG, "SPP server initialized");
     return ESP_OK;
 }

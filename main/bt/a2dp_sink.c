@@ -69,6 +69,8 @@ void a2dp_sink_destroy(a2dp_sink_t *sink)
     if (sink) free(sink);
 }
 
+/* Init is intentionally minimal: allocation happens in create, stack
+ * registration in register_callbacks; kept as a checked no-op for API symmetry. */
 esp_err_t a2dp_sink_init(a2dp_sink_t *sink)
 {
     if (!sink) return ESP_ERR_INVALID_ARG;
@@ -77,7 +79,11 @@ esp_err_t a2dp_sink_init(a2dp_sink_t *sink)
 
 orangebus_a2dp_state_t a2dp_sink_get_state(const a2dp_sink_t *sink)
 {
-    return sink ? sink->state : ORANGEBUS_A2DP_IDLE;
+    if (!sink) {
+        ESP_LOGW(TAG, "get_state called with NULL handle");
+        return ORANGEBUS_A2DP_IDLE;
+    }
+    return sink->state;
 }
 
 orangebus_a2dp_state_t *a2dp_sink_get_state_ptr(a2dp_sink_t *sink)
