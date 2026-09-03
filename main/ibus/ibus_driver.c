@@ -1,6 +1,7 @@
 #include "ibus.h"
 #include "ibus_private.h"
 #include <stdlib.h>
+#include <string.h>
 #include "esp_log.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
@@ -183,7 +184,16 @@ void ibus_process(ibus_t *ibus)
                 if (ibus->rxLen >= expectedTotal) {
                     uint8_t calcCrc = ibus_crc(ibus->rxBuf, expectedTotal - 1);
                     if (calcCrc == ibus->rxBuf[expectedTotal - 1]) {
-                        process_packet(ibus, ibus->rxBuf, expectedTotal);
+                        /* Echo filter: most transceivers loop our own TX back
+                         * on RX; drop byte-identical frames seen shortly
+                         * after transmission instead of dispatching them. */
+                        bool isEcho = (ibus->lastTxLen == expectedTotal
+                            && ibus->lastTxLen > 0
+                            && (now - ibus->lastTxMs) <= 100
+                            && memcmp(ibus->rxBuf, ibus->lastTxBuf, expectedTotal) == 0);
+                        if (!isEcho) {
+                            process_packet(ibus, ibus->rxBuf, expectedTotal);
+                        }
                     }
                     ibus->rxLen = 0;
                 }
