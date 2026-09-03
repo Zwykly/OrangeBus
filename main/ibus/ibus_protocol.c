@@ -42,7 +42,8 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
 void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t dataLen)
 {
     if (!ibus) return;
-    if (dataLen > ORANGEBUS_IBUS_MAX_PKT - 6) return;
+    /* Frame overhead is 5 bytes (src/len/dst/cmd/crc), so 59 data bytes max. */
+    if (dataLen > ORANGEBUS_IBUS_MAX_PKT - 5) return;
     uint8_t pkt[ORANGEBUS_IBUS_MAX_PKT];
     uint8_t len = 3 + dataLen;
     pkt[0] = src;

@@ -360,6 +360,10 @@ void app_run(void)
     ibus_config_init(ibusConfig);
 
     ibus_t *ibus = ibus_create(ibusConfig);
+    if (!ibus) {
+        ESP_LOGE(TAG, "I-BUS create failed (low heap), aborting init");
+        return;
+    }
     ibus_init(ibus);
 
     cdc_t *cdc = cdc_create(ibus, ibusConfig);
