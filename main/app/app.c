@@ -260,8 +260,9 @@ static void ibus_task(void *arg)
                 orangebus_a2dp_state_t prev = ic->lastA2dpState;
                 ic->lastA2dpState = a2dpState;
                 if (a2dpState == ORANGEBUS_A2DP_PLAYING) {
-                    const orangebus_metadata_t *meta = avrcp_controller_get_metadata(ic->avrcp);
-                    send_metadata_to_ui(ic, meta, true);
+                    orangebus_metadata_t metaCopy;
+                    avrcp_controller_copy_metadata(ic->avrcp, &metaCopy);
+                    send_metadata_to_ui(ic, &metaCopy, true);
                     ui_bmbt_on_playback(ic->uiBmbt, true);
                 } else if (a2dpState == ORANGEBUS_A2DP_PAUSED || a2dpState == ORANGEBUS_A2DP_CONNECTED) {
                     ui_bmbt_on_playback(ic->uiBmbt, false);
@@ -275,13 +276,14 @@ static void ibus_task(void *arg)
                 }
             }
 
-            const orangebus_metadata_t *meta = avrcp_controller_get_metadata(ic->avrcp);
-            if (meta && (strcmp(meta->title, ic->lastTitle) != 0 || strcmp(meta->artist, ic->lastArtist) != 0)) {
-                strncpy(ic->lastTitle, meta->title, sizeof(ic->lastTitle) - 1);
+            orangebus_metadata_t metaCopy;
+            avrcp_controller_copy_metadata(ic->avrcp, &metaCopy);
+            if (strcmp(metaCopy.title, ic->lastTitle) != 0 || strcmp(metaCopy.artist, ic->lastArtist) != 0) {
+                strncpy(ic->lastTitle, metaCopy.title, sizeof(ic->lastTitle) - 1);
                 ic->lastTitle[sizeof(ic->lastTitle) - 1] = '\0';
-                strncpy(ic->lastArtist, meta->artist, sizeof(ic->lastArtist) - 1);
+                strncpy(ic->lastArtist, metaCopy.artist, sizeof(ic->lastArtist) - 1);
                 ic->lastArtist[sizeof(ic->lastArtist) - 1] = '\0';
-                send_metadata_to_ui(ic, meta, a2dpState == ORANGEBUS_A2DP_PLAYING);
+                send_metadata_to_ui(ic, &metaCopy, a2dpState == ORANGEBUS_A2DP_PLAYING);
             }
 
             orangebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
@@ -338,12 +340,10 @@ void app_run(void)
     a2dp_sink_t *a2dp = a2dp_sink_create(audio);
     a2dp_sink_init(a2dp);
 
-    avrcp_controller_set_a2dp_state_ref(avrcp, a2dp_sink_get_state_ptr(a2dp));
+    avrcp_controller_set_a2dp_sink(avrcp, a2dp);
 
     hfp_client_t *hfp = hfp_client_create(audio, avrcp, a2dp);
     hfp_client_init(hfp);
-
-    a2dp_sink_set_hfp_state_ref(a2dp, hfp_client_get_state_ptr(hfp));
 
     esp_err_t ret = avrcp_controller_register_callbacks(avrcp);
     ESP_LOGI(TAG, "AVRCP CT init: %s", esp_err_to_name(ret));

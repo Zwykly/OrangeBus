@@ -12,6 +12,7 @@ void a2dp_sink_destroy(a2dp_sink_t *sink);
 esp_err_t a2dp_sink_init(a2dp_sink_t *sink);
 
 orangebus_a2dp_state_t a2dp_sink_get_state(const a2dp_sink_t *sink);
+void a2dp_sink_set_state(a2dp_sink_t *sink, orangebus_a2dp_state_t state);
 orangebus_a2dp_state_t *a2dp_sink_get_state_ptr(a2dp_sink_t *sink);
 const char *a2dp_sink_state_str(orangebus_a2dp_state_t state);
 
