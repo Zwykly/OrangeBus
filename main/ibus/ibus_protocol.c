@@ -6,12 +6,15 @@
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #define TAG "IBUS"
 
-/* Wysyla surowy bufor: w trybie debug loguje z opisem, w normalnym trybie zapisuje na UART */
+/* Wysyla surowy bufor: w trybie debug loguje z opisem, w normalnym trybie zapisuje na UART.
+ * Serialized by txMutex so ibus_task, spp_cmd_task and CLI cannot interleave. */
 void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
 {
+    if (!ibus || !buf) return;
     if (ibus->debugMode) {
         char hex[ORANGEBUS_IBUS_MAX_PKT * 3 + 1];
         int pos = 0;
@@ -27,26 +30,31 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
         return;
     }
     if (!ibus->uart_installed) return;
+    if (ibus->txMutex) xSemaphoreTake(ibus->txMutex, portMAX_DELAY);
     uart_write_bytes(ORANGEBUS_IBUS_UART_NUM, buf, len);
     uart_wait_tx_done(ORANGEBUS_IBUS_UART_NUM, pdMS_TO_TICKS(50));
+    if (ibus->txMutex) xSemaphoreGive(ibus->txMutex);
 }
 
-/* Skladaje pakiet I-BUS (src|len|dst|cmd|data...|crc) i wysyla przez send_raw */
+/* Skladaje pakiet I-BUS (src|len|dst|cmd|data...|crc) i wysyla przez send_raw.
+ * Packet is staged in a stack-local buffer so concurrent callers never share
+ * mutable state; the UART write itself is serialized inside ibus_send_raw. */
 void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t dataLen)
 {
     if (!ibus) return;
+    if (dataLen > ORANGEBUS_IBUS_MAX_PKT - 6) return;
+    uint8_t pkt[ORANGEBUS_IBUS_MAX_PKT];
     uint8_t len = 3 + dataLen;
-    uint8_t *tx = ibus->txBuf;
-    tx[0] = src;
-    tx[1] = len;
-    tx[2] = dst;
-    tx[3] = cmd;
+    pkt[0] = src;
+    pkt[1] = len;
+    pkt[2] = dst;
+    pkt[3] = cmd;
     if (dataLen > 0 && data != NULL) {
-        memcpy(&tx[4], data, dataLen);
+        memcpy(&pkt[4], data, dataLen);
     }
     uint8_t crcPos = 4 + dataLen;
-    tx[crcPos] = ibus_crc(tx, crcPos);
-    ibus_send_raw(ibus, tx, crcPos + 1);
+    pkt[crcPos] = ibus_crc(pkt, crcPos);
+    ibus_send_raw(ibus, pkt, crcPos + 1);
 }
 
 void ibus_send_cdc_status(ibus_t *ibus, uint8_t status, uint8_t function)

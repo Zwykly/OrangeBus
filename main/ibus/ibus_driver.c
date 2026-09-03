@@ -75,6 +75,11 @@ ibus_t *ibus_create(ibus_config_t *config)
     ibus_t *ibus = calloc(1, sizeof(ibus_t));
     if (!ibus) return NULL;
     ibus->config = config;
+    ibus->txMutex = xSemaphoreCreateMutex();
+    if (!ibus->txMutex) {
+        free(ibus);
+        return NULL;
+    }
     return ibus;
 }
 
@@ -84,6 +89,7 @@ void ibus_destroy(ibus_t *ibus)
         if (ibus->uart_installed) {
             uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
         }
+        if (ibus->txMutex) vSemaphoreDelete(ibus->txMutex);
         free(ibus);
     }
 }
