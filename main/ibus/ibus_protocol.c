@@ -6,6 +6,7 @@
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #define TAG "IBUS"
 
@@ -14,7 +15,8 @@
 #define IBUS_TX_IDLE_MS 10
 #define IBUS_TX_DEFER_RETRIES 5
 
-/* Wysyla surowy bufor: w trybie debug loguje z opisem, w normalnym trybie zapisuje na UART */
+/* Wysyla surowy bufor: w trybie debug loguje z opisem, w normalnym trybie zapisuje na UART.
+ * Serialized by txMutex so ibus_task, spp_cmd_task and CLI cannot interleave. */
 void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
 {
     if (!ibus || !buf || len == 0 || len > ORANGEBUS_IBUS_MAX_PKT) return;
@@ -33,9 +35,10 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
         return;
     }
     if (!ibus->uart_installed) return;
+    if (ibus->txMutex) xSemaphoreTake(ibus->txMutex, portMAX_DELAY);
     /* Listen-before-talk: defer while a byte arrived within the idle window
      * so we do not collide with radio/GM/LCM frames. Bounded so a babbling
-     * bus cannot stall the caller forever (full serialization in T6).
+     * bus cannot stall the caller forever.
      * NOTE: HZ=100 quantizes timing to 10 ms ticks, hence a full-tick delay. */
     for (int i = 0; i < IBUS_TX_DEFER_RETRIES; i++) {
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -47,24 +50,29 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
     memcpy(ibus->lastTxBuf, buf, len);
     ibus->lastTxLen = len;
     ibus->lastTxMs = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    if (ibus->txMutex) xSemaphoreGive(ibus->txMutex);
 }
 
-/* Skladaje pakiet I-BUS (src|len|dst|cmd|data...|crc) i wysyla przez send_raw */
+/* Skladaje pakiet I-BUS (src|len|dst|cmd|data...|crc) i wysyla przez send_raw.
+ * Packet is staged in a stack-local buffer so concurrent callers never share
+ * mutable state; the UART write itself is serialized inside ibus_send_raw. */
 void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t dataLen)
 {
     if (!ibus) return;
+    /* Frame overhead is 5 bytes (src/len/dst/cmd/crc), so 59 data bytes max. */
+    if (dataLen > ORANGEBUS_IBUS_MAX_PKT - 5) return;
+    uint8_t pkt[ORANGEBUS_IBUS_MAX_PKT];
     uint8_t len = 3 + dataLen;
-    uint8_t *tx = ibus->txBuf;
-    tx[0] = src;
-    tx[1] = len;
-    tx[2] = dst;
-    tx[3] = cmd;
+    pkt[0] = src;
+    pkt[1] = len;
+    pkt[2] = dst;
+    pkt[3] = cmd;
     if (dataLen > 0 && data != NULL) {
-        memcpy(&tx[4], data, dataLen);
+        memcpy(&pkt[4], data, dataLen);
     }
     uint8_t crcPos = 4 + dataLen;
-    tx[crcPos] = ibus_crc(tx, crcPos);
-    ibus_send_raw(ibus, tx, crcPos + 1);
+    pkt[crcPos] = ibus_crc(pkt, crcPos);
+    ibus_send_raw(ibus, pkt, crcPos + 1);
 }
 
 void ibus_send_cdc_status(ibus_t *ibus, uint8_t status, uint8_t function)
