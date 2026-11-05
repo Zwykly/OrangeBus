@@ -150,6 +150,23 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
             snprintf(resp, sizeof(resp), "OK:META:%d\r\n", val);
             spp_send_response(spp, resp);
         }
+    } else if (strncmp(cmd, "IBUS:CONFIG:PWR_GATE:", 21) == 0) {
+        uint8_t val = (uint8_t)atoi(cmd + 21) ? 1 : 0;
+        ibus_config_set(spp->config, IBUS_CFG_PWR_GATE, val);
+        char resp[32];
+        snprintf(resp, sizeof(resp), "OK:PWR_GATE:%d\r\n", val);
+        spp_send_response(spp, resp);
+    } else if (strncmp(cmd, "IBUS:CONFIG:PWR_IDLE:", 21) == 0) {
+        /* Seconds of bus silence before power-off; at least 10 s. */
+        int seconds = atoi(cmd + 21);
+        if (seconds < 10 || seconds > 255) {
+            spp_send_response(spp, "ERR\r\n");
+        } else {
+            ibus_config_set(spp->config, IBUS_CFG_PWR_IDLE_S, (uint8_t)seconds);
+            char resp[32];
+            snprintf(resp, sizeof(resp), "OK:PWR_IDLE:%d\r\n", seconds);
+            spp_send_response(spp, resp);
+        }
     } else if (strncmp(cmd, "IBUS:SEND:", 10) == 0) {
         uint8_t buf[32];
         uint8_t idx = 0;
@@ -169,16 +186,18 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
             spp_send_response(spp, "ERR:FORMAT\r\n");
         }
     } else if (strncmp(cmd, "IBUS?", 5) == 0) {
-        char resp[128];
+        char resp[160];
         snprintf(resp, sizeof(resp),
-            "IBUS:DEBUG=%s,UI=%s,AUTOPLAY=%d,META=%d,BLINK=%d,LOCKS=%d,MIRRORS=%d\r\n",
+            "IBUS:DEBUG=%s,UI=%s,AUTOPLAY=%d,META=%d,BLINK=%d,LOCKS=%d,MIRRORS=%d,PWR_GATE=%d,PWR_IDLE=%d\r\n",
             ibus_is_debug_mode(spp->ibus) ? "ON" : "OFF",
             ibus_config_ui_mode_name(ibus_config_get(spp->config, IBUS_CFG_UI_MODE)),
             ibus_config_get(spp->config, IBUS_CFG_AUTOPLAY),
             ibus_config_get(spp->config, IBUS_CFG_META_MODE),
             ibus_config_get(spp->config, IBUS_CFG_COMFORT_BLINK),
             ibus_config_get(spp->config, IBUS_CFG_COMFORT_LOCKS),
-            ibus_config_get(spp->config, IBUS_CFG_COMFORT_MIRRORS));
+            ibus_config_get(spp->config, IBUS_CFG_COMFORT_MIRRORS),
+            ibus_config_get(spp->config, IBUS_CFG_PWR_GATE),
+            ibus_config_get(spp->config, IBUS_CFG_PWR_IDLE_S));
         spp_send_response(spp, resp);
     } else {
         spp_send_response(spp, "ERR:UNKNOWN_IBUS\r\n");

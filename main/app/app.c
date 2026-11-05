@@ -17,6 +17,8 @@
 #include "ui_mid.h"
 #include "ui_bmbt.h"
 #include "comfort.h"
+#include "power_manager.h"
+#include "nvs_flash.h"
 #include "esp_log.h"
 #include "esp_gap_bt_api.h"
 #include "esp_avrc_api.h"
@@ -46,6 +48,10 @@ typedef struct {
     orangebus_hfp_state_t lastHfpState;
     uint32_t lastMetadataVersion;   /* avrcp metadata version last shown */
     uint32_t lastConfigRevision;    /* config revision last applied */
+    power_manager_t *power;
+    /* Set once phase 2 of start-up has created the Bluetooth/audio modules.
+     * Before that, avrcp/a2dp/hfp/audio/power are NULL. */
+    volatile bool btReady;
     bool mflVoiceHeld;   /* R/T button was held: suppress the release action */
 } app_context_t;
 
@@ -53,6 +59,11 @@ typedef struct {
 static app_context_t *s_app = NULL;
 
 static void set_active_ui(app_context_t *app);
+
+static inline bool bt_ready(const app_context_t *app)
+{
+    return __atomic_load_n(&app->btReady, __ATOMIC_ACQUIRE);
+}
 
 /* ===================== I-BUS event callbacks =====================
  * All run in ibus_task context, straight from the frame dispatcher. */
@@ -86,6 +97,7 @@ static void on_cdc_request(uint8_t *data, uint8_t len)
     app_context_t *app = s_app;
     if (len < 1) return;
     cdc_on_request(app->cdc, data, len);
+    if (!bt_ready(app)) return;   /* radio answered; nothing to forward yet */
 
     uint8_t command = data[0];
     orangebus_a2dp_state_t a2dpState = a2dp_sink_get_state(app->a2dp);
@@ -125,7 +137,7 @@ static void on_cdc_request(uint8_t *data, uint8_t len)
 static void on_mfl_button(uint8_t *data, uint8_t len)
 {
     app_context_t *app = s_app;
-    if (len < 1) return;
+    if (len < 1 || !bt_ready(app)) return;
     uint8_t button = data[0];
 
     if (button == ORANGEBUS_IBUS_MFL_BTN_VOICE_PRESS) {
@@ -168,7 +180,7 @@ static int8_t volume_delta(uint8_t volumeByte, int8_t percentPerStep)
 static void on_mfl_volume(uint8_t *data, uint8_t len)
 {
     app_context_t *app = s_app;
-    if (len < 1) return;
+    if (len < 1 || !bt_ready(app)) return;
     orangebus_hfp_state_t hfpState = hfp_client_get_state(app->hfp);
     if (hfpState == ORANGEBUS_HFP_AUDIO_OPEN || hfpState == ORANGEBUS_HFP_ACTIVE) {
         audio_output_adjust_volume(app->audio, volume_delta(data[0], 5));
@@ -197,7 +209,7 @@ static void on_ignition_status(uint8_t *data, uint8_t len)
 static void on_rad_volume(uint8_t *data, uint8_t len)
 {
     app_context_t *app = s_app;
-    if (len < 1) return;
+    if (len < 1 || !bt_ready(app)) return;
     audio_output_adjust_volume(app->audio, volume_delta(data[0], 2));
 }
 
@@ -286,6 +298,59 @@ static void send_metadata_to_ui(app_context_t *app, const orangebus_metadata_t *
 
 /* ===================== I-BUS task ===================== */
 
+/* Mirrors Bluetooth state onto the car: A2DP play state and autoplay, new
+ * track metadata, and phone/call state for the TEL emulator. Called from the
+ * 100 ms tick once Bluetooth is up. */
+static void sync_bluetooth_state(app_context_t *app)
+{
+    /* --- A2DP state -> displays, autoplay --- */
+    orangebus_a2dp_state_t a2dpState = a2dp_sink_get_state(app->a2dp);
+    if (a2dpState != app->lastA2dpState) {
+        orangebus_a2dp_state_t previousState = app->lastA2dpState;
+        app->lastA2dpState = a2dpState;
+        if (a2dpState == ORANGEBUS_A2DP_PLAYING) {
+            app->lastMetadataVersion--;   /* force a metadata refresh below */
+            ui_bmbt_on_playback(app->uiBmbt, true);
+        } else if (a2dpState == ORANGEBUS_A2DP_PAUSED || a2dpState == ORANGEBUS_A2DP_CONNECTED) {
+            ui_bmbt_on_playback(app->uiBmbt, false);
+        }
+        bool justConnected = a2dpState >= ORANGEBUS_A2DP_CONNECTED
+            && previousState < ORANGEBUS_A2DP_CONNECTED;
+        if (justConnected && ibus_config_get(app->config, IBUS_CFG_AUTOPLAY)
+            && !cdc_is_playing(app->cdc)) {
+            cdc_set_playing(app->cdc, true);
+            avrcp_controller_send_passthrough(app->avrcp, ESP_AVRC_PT_CMD_PLAY);
+        }
+    }
+
+    /* --- New track metadata -> display (only copied when it changed) --- */
+    uint32_t metadataVersion = avrcp_controller_get_metadata_version(app->avrcp);
+    if (metadataVersion != app->lastMetadataVersion) {
+        app->lastMetadataVersion = metadataVersion;
+        orangebus_metadata_t meta;
+        avrcp_controller_copy_metadata(app->avrcp, &meta);
+        send_metadata_to_ui(app, &meta, a2dpState == ORANGEBUS_A2DP_PLAYING);
+    }
+
+    /* --- HFP state -> telephone emulator --- */
+    orangebus_hfp_state_t hfpState = hfp_client_get_state(app->hfp);
+    if (hfpState != app->lastHfpState) {
+        app->lastHfpState = hfpState;
+        if (hfpState == ORANGEBUS_HFP_CONNECTED) {
+            tel_set_connected(app->tel, true);
+        } else if (hfpState == ORANGEBUS_HFP_IDLE) {
+            tel_set_connected(app->tel, false);
+            tel_set_call_active(app->tel, false);
+        } else if (hfpState == ORANGEBUS_HFP_INCOMING) {
+            tel_set_call_incoming(app->tel, true);
+            const char *callerId = hfp_client_get_caller_id(app->hfp);
+            if (callerId && callerId[0]) tel_set_caller_id(app->tel, callerId);
+        } else if (hfpState == ORANGEBUS_HFP_ACTIVE || hfpState == ORANGEBUS_HFP_AUDIO_OPEN) {
+            tel_set_call_active(app->tel, true);
+        }
+    }
+}
+
 /* Main I-BUS task:
  *  1. reads and dispatches bus frames as soon as they arrive,
  *  2. every 100 ms runs each module's tick() (periodic bus messages),
@@ -322,51 +387,10 @@ static void ibus_task(void *arg)
                 set_active_ui(app);
             }
 
-            /* --- A2DP state -> displays, autoplay --- */
-            orangebus_a2dp_state_t a2dpState = a2dp_sink_get_state(app->a2dp);
-            if (a2dpState != app->lastA2dpState) {
-                orangebus_a2dp_state_t previousState = app->lastA2dpState;
-                app->lastA2dpState = a2dpState;
-                if (a2dpState == ORANGEBUS_A2DP_PLAYING) {
-                    app->lastMetadataVersion--;   /* force a metadata refresh below */
-                    ui_bmbt_on_playback(app->uiBmbt, true);
-                } else if (a2dpState == ORANGEBUS_A2DP_PAUSED || a2dpState == ORANGEBUS_A2DP_CONNECTED) {
-                    ui_bmbt_on_playback(app->uiBmbt, false);
-                }
-                bool justConnected = a2dpState >= ORANGEBUS_A2DP_CONNECTED
-                    && previousState < ORANGEBUS_A2DP_CONNECTED;
-                if (justConnected && ibus_config_get(app->config, IBUS_CFG_AUTOPLAY)
-                    && !cdc_is_playing(app->cdc)) {
-                    cdc_set_playing(app->cdc, true);
-                    avrcp_controller_send_passthrough(app->avrcp, ESP_AVRC_PT_CMD_PLAY);
-                }
-            }
-
-            /* --- New track metadata -> display (only copied when it changed) --- */
-            uint32_t metadataVersion = avrcp_controller_get_metadata_version(app->avrcp);
-            if (metadataVersion != app->lastMetadataVersion) {
-                app->lastMetadataVersion = metadataVersion;
-                orangebus_metadata_t meta;
-                avrcp_controller_copy_metadata(app->avrcp, &meta);
-                send_metadata_to_ui(app, &meta, a2dpState == ORANGEBUS_A2DP_PLAYING);
-            }
-
-            /* --- HFP state -> telephone emulator --- */
-            orangebus_hfp_state_t hfpState = hfp_client_get_state(app->hfp);
-            if (hfpState != app->lastHfpState) {
-                app->lastHfpState = hfpState;
-                if (hfpState == ORANGEBUS_HFP_CONNECTED) {
-                    tel_set_connected(app->tel, true);
-                } else if (hfpState == ORANGEBUS_HFP_IDLE) {
-                    tel_set_connected(app->tel, false);
-                    tel_set_call_active(app->tel, false);
-                } else if (hfpState == ORANGEBUS_HFP_INCOMING) {
-                    tel_set_call_incoming(app->tel, true);
-                    const char *callerId = hfp_client_get_caller_id(app->hfp);
-                    if (callerId && callerId[0]) tel_set_caller_id(app->tel, callerId);
-                } else if (hfpState == ORANGEBUS_HFP_ACTIVE || hfpState == ORANGEBUS_HFP_AUDIO_OPEN) {
-                    tel_set_call_active(app->tel, true);
-                }
+            /* Bluetooth side exists only after phase 2 of start-up. */
+            if (bt_ready(app)) {
+                sync_bluetooth_state(app);
+                power_manager_tick(app->power);
             }
         }
 
@@ -382,53 +406,34 @@ static void ibus_task(void *arg)
 
 /* ===================== Start-up ===================== */
 
-/* Start-up: Bluetooth stack and audio first, then the I-BUS side, then the
- * user interfaces (SPP, serial CLI) and finally the I-BUS task. */
+/* NVS holds the I-BUS config and the Bluetooth bonds, so it is brought up
+ * first. Erase-and-retry recovers from a full or newer-format partition. */
+static void init_nvs(void)
+{
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+}
 
+/* Start-up in two phases. With power gating the ESP32 cold-boots on every
+ * car wake-up, so the radio must see the CD changer again as fast as possible:
+ *   Phase 1 - I-BUS only (~0.3-0.5 s after power-up): config, bus driver,
+ *             emulators, UIs and ibus_task. The radio is answered from here on.
+ *   Phase 2 - Bluetooth, audio, power manager, SPP and CLI (~1-2 s). Until
+ *             btReady is set, ibus_task and the callbacks skip anything that
+ *             touches Bluetooth or audio. */
 void app_run(void)
 {
     ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, " ESP32 OrangeBus BT Test (ESP-IDF v6.0)");
+    ESP_LOGI(TAG, " ESP32 OrangeBus (ESP-IDF v6.0)");
     ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "Pair phone with 'BMW-OrangeBus'");
-    ESP_LOGI(TAG, "Commands: +/- vol, m mute, p play, s pause");
-    ESP_LOGI(TAG, " n next, b prev, a answer, r reject, d redial");
-    ESP_LOGI(TAG, " v voice (AVRCP), V voice (HFP), h status");
-    ESP_LOGI(TAG, " e toggle EQ, E show EQ bands");
-    ESP_LOGI(TAG, " i ibus debug, I ibus status, u cycle UI mode");
-    ESP_LOGI(TAG, " U autoplay, c blink, C locks+mirrors");
 
-    bt_manager_init();
+    init_nvs();
 
-    audio_output_t *audio = audio_output_create();
-    audio_output_init(audio, 44100);
-
-    eq_processor_t *eq = eq_processor_create();
-    eq_processor_init(eq, 44100);
-    audio_output_set_eq(audio, eq);
-
-    avrcp_controller_t *avrcp = avrcp_controller_create();
-    avrcp_controller_init(avrcp);
-
-    a2dp_sink_t *a2dp = a2dp_sink_create(audio);
-    a2dp_sink_init(a2dp);
-
-    avrcp_controller_set_a2dp_sink(avrcp, a2dp);
-
-    hfp_client_t *hfp = hfp_client_create(audio, avrcp, a2dp);
-    hfp_client_init(hfp);
-
-    esp_err_t ret = avrcp_controller_register_callbacks(avrcp);
-    ESP_LOGI(TAG, "AVRCP CT init: %s", esp_err_to_name(ret));
-
-    ret = a2dp_sink_register_callbacks(a2dp);
-    ESP_LOGI(TAG, "A2DP sink init: %s", esp_err_to_name(ret));
-
-    ret = hfp_client_register_callbacks(hfp);
-    ESP_LOGI(TAG, "HFP client init: %s", esp_err_to_name(ret));
-
-    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-
+    /* ---------- Phase 1: I-BUS ---------- */
     ibus_config_t *ibusConfig = ibus_config_create();
     ibus_config_init(ibusConfig);
 
@@ -441,22 +446,16 @@ void app_run(void)
 
     cdc_t *cdc = cdc_create(ibus, ibusConfig);
     cdc_init(cdc);
-
     tel_t *tel = tel_create(ibus, ibusConfig);
     tel_init(tel);
-
     ui_cd53_t *uiCd53 = ui_cd53_create(ibus, ibusConfig);
     ui_cd53_init(uiCd53);
-
     ui_mir_t *uiMir = ui_mir_create(ibus, ibusConfig);
     ui_mir_init(uiMir);
-
     ui_mid_t *uiMid = ui_mid_create(ibus, ibusConfig);
     ui_mid_init(uiMid);
-
     ui_bmbt_t *uiBmbt = ui_bmbt_create(ibus, ibusConfig);
     ui_bmbt_init(uiBmbt);
-
     comfort_t *comfort = comfort_create(ibus, ibusConfig);
     comfort_init(comfort);
 
@@ -475,10 +474,6 @@ void app_run(void)
     app->uiMid = uiMid;
     app->uiBmbt = uiBmbt;
     app->comfort = comfort;
-    app->avrcp = avrcp;
-    app->a2dp = a2dp;
-    app->hfp = hfp;
-    app->audio = audio;
     app->lastConfigRevision = ibus_config_get_revision(ibusConfig);
 
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_FIRST_FRAME, on_first_frame);
@@ -494,19 +489,65 @@ void app_run(void)
 
     set_active_ui(app);
 
+    /* Priority 6: above CLI/SPP (4) and the AVRCP worker (5) so radio polls
+     * are never delayed by command parsing. The CDC announce goes out on the
+     * first frame received from the car (never into a silent bus). */
+    xTaskCreate(ibus_task, "ibus_task", 4096, app, 6, NULL);
+    ESP_LOGI(TAG, "I-BUS up (%lu ms after boot)", (unsigned long)esp_log_timestamp());
+
+    /* ---------- Phase 2: Bluetooth, audio, power, user interfaces ---------- */
+    bt_manager_init();
+
+    audio_output_t *audio = audio_output_create();
+    audio_output_init(audio, 44100);
+    eq_processor_t *eq = eq_processor_create();
+    eq_processor_init(eq, 44100);
+    audio_output_set_eq(audio, eq);
+
+    avrcp_controller_t *avrcp = avrcp_controller_create();
+    avrcp_controller_init(avrcp);
+    a2dp_sink_t *a2dp = a2dp_sink_create(audio);
+    a2dp_sink_init(a2dp);
+    avrcp_controller_set_a2dp_sink(avrcp, a2dp);
+    hfp_client_t *hfp = hfp_client_create(audio, avrcp, a2dp);
+    hfp_client_init(hfp);
+
+    esp_err_t ret = avrcp_controller_register_callbacks(avrcp);
+    ESP_LOGI(TAG, "AVRCP CT init: %s", esp_err_to_name(ret));
+    ret = a2dp_sink_register_callbacks(a2dp);
+    ESP_LOGI(TAG, "A2DP sink init: %s", esp_err_to_name(ret));
+    ret = hfp_client_register_callbacks(hfp);
+    ESP_LOGI(TAG, "HFP client init: %s", esp_err_to_name(ret));
+
+    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+
+    app->audio = audio;
+    app->avrcp = avrcp;
+    app->a2dp = a2dp;
+    app->hfp = hfp;
+
+    power_manager_deps_t powerDeps = {
+        .ibus = ibus, .config = ibusConfig, .cdc = cdc, .comfort = comfort,
+        .a2dp = a2dp, .hfp = hfp, .audio = audio,
+    };
+    app->power = power_manager_create(&powerDeps);
+    power_manager_init(app->power);
+
     spp_server_t *spp = spp_server_create(eq, ibus, cdc, tel, ibusConfig, comfort, avrcp);
     ret = spp_server_init(spp);
     ESP_LOGI(TAG, "SPP server init: %s", esp_err_to_name(ret));
 
-    cli_t *cli_inst = cli_create(audio, avrcp, a2dp, hfp, eq, ibus, cdc, tel, ibusConfig);
-    cli_start(cli_inst);
+    cli_t *cli = cli_create(audio, avrcp, a2dp, hfp, eq, ibus, cdc, tel, ibusConfig, app->power);
+    cli_start(cli);
 
-    /* Time-critical bus task runs above CLI/SPP so radio polls are not
-     * delayed by command parsing (CODE_REVIEW 3.5). */
-    xTaskCreate(ibus_task, "ibus_task", 4096, app, 6, NULL);
+    /* Publish the Bluetooth/audio pointers to ibus_task and the callbacks. */
+    __atomic_store_n(&app->btReady, true, __ATOMIC_RELEASE);
 
     ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, " INIT COMPLETE - BT discoverable!");
-    ESP_LOGI(TAG, " I-BUS active on UART2 (9600 8E1)");
+    ESP_LOGI(TAG, " INIT COMPLETE - pair with 'BMW-OrangeBus'");
+    ESP_LOGI(TAG, " Keys: +/- vol, m mute, p/s play/pause, n/b next/prev");
+    ESP_LOGI(TAG, "  a/r/d answer/reject/redial, v/V voice, h status");
+    ESP_LOGI(TAG, "  e/E EQ, i/I ibus debug/status, u UI mode, U autoplay");
+    ESP_LOGI(TAG, "  c blink, C locks+mirrors, P power status, z power off");
     ESP_LOGI(TAG, "========================================");
 }

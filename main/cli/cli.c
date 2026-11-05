@@ -9,6 +9,7 @@
 #include "cdc.h"
 #include "tel.h"
 #include "ibus_config.h"
+#include "power_manager.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -28,13 +29,15 @@ struct cli_t {
     cdc_t *cdc;
     tel_t *tel;
     ibus_config_t *config;
+    power_manager_t *power;
 };
 
 /* Serial console task: one character = one command.
  *   +/- volume, m mute, p/s play/pause, n/b next/prev,
  *   a/r/d answer/reject/redial, v/V voice assistant (AVRCP/HFP),
  *   h status, e/E EQ toggle/bands, i/I I-BUS debug/status,
- *   u/U/c/C UI mode / autoplay / comfort settings. */
+ *   u/U/c/C UI mode / autoplay / comfort settings,
+ *   P power-gating status, z force a power-off attempt. */
 static void serial_cmd_task(void *arg)
 {
     cli_t *cli = (cli_t *)arg;
@@ -232,6 +235,15 @@ static void serial_cmd_task(void *arg)
                     locks ? "ON" : "OFF", mirrors ? "ON" : "OFF");
             }
             break;
+        /* --- Power gating --- */
+        case 'P':
+            power_manager_print_status(cli->power);
+            break;
+        case 'z':
+            /* Bypasses the policy - the board switches off right away. */
+            ESP_LOGW(TAG, "Forcing power-off attempt");
+            power_manager_request_off(cli->power);
+            break;
         default:
             break;
         }
@@ -239,7 +251,7 @@ static void serial_cmd_task(void *arg)
 }
 
 /* Creates the CLI with references to the modules it controls. */
-cli_t *cli_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp, hfp_client_t *hfp, eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, tel_t *tel, ibus_config_t *config)
+cli_t *cli_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp, hfp_client_t *hfp, eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, tel_t *tel, ibus_config_t *config, power_manager_t *power)
 {
     cli_t *cli = calloc(1, sizeof(cli_t));
     if (!cli) return NULL;
@@ -252,6 +264,7 @@ cli_t *cli_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t 
     cli->cdc = cdc;
     cli->tel = tel;
     cli->config = config;
+    cli->power = power;
     return cli;
 }
 

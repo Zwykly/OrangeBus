@@ -15,6 +15,8 @@ typedef enum {
     IBUS_CFG_COMFORT_LOCKS,     /* 1 = extra central-lock pulse on lock */
     IBUS_CFG_COMFORT_MIRRORS,   /* 1 = unfold mirrors on unlock */
     IBUS_CFG_META_MODE,         /* 0..3: track text layout, see send_metadata_to_ui() */
+    IBUS_CFG_PWR_GATE,          /* 1 = power gating enabled, 0 = never switch off (bench) */
+    IBUS_CFG_PWR_IDLE_S,        /* seconds of bus silence (ignition off) before power-off */
     IBUS_CFG_KEY_COUNT,
 } ibus_config_key_t;
 
