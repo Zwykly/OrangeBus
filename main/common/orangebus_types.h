@@ -25,11 +25,13 @@ typedef enum {
 
 /* --- Zdarzenia I-BUS przekazywane do warstwy aplikacji --- */
 typedef enum {
-    ORANGEBUS_IBUS_EVT_CDC_STATUS_REQ = 0,
-    ORANGEBUS_IBUS_EVT_CDC_BUTTON_PRESS,
-    ORANGEBUS_IBUS_EVT_MFL_BUTTON_PRESS,
-    ORANGEBUS_IBUS_EVT_IGNITION_STATUS,
-    ORANGEBUS_IBUS_EVT_VOLUME_CHANGE,
+    ORANGEBUS_IBUS_EVT_FIRST_FRAME = 0,   /* first valid foreign frame since boot */
+    ORANGEBUS_IBUS_EVT_CDC_REQUEST,       /* radio -> CDC command (0x38), incl. status poll */
+    ORANGEBUS_IBUS_EVT_CDC_PING,          /* module ping to the CDC (0x01), already answered */
+    ORANGEBUS_IBUS_EVT_MFL_BUTTON,        /* steering wheel button (0x3B) */
+    ORANGEBUS_IBUS_EVT_MFL_VOLUME,        /* steering wheel volume keys (0x32) */
+    ORANGEBUS_IBUS_EVT_IGNITION_STATUS,   /* IKE ignition status (0x11) */
+    ORANGEBUS_IBUS_EVT_RAD_VOLUME,        /* radio volume step (0x32) */
     ORANGEBUS_IBUS_EVT_MID_BUTTON_PRESS,
     ORANGEBUS_IBUS_EVT_MID_MODE_CHANGE,
     ORANGEBUS_IBUS_EVT_BMBT_BUTTON_PRESS,

@@ -75,22 +75,60 @@ void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const
     ibus_send_raw(ibus, pkt, crcPos + 1);
 }
 
-void ibus_send_cdc_status(ibus_t *ibus, uint8_t status, uint8_t function)
+/* CDC status reply to the radio (layout matches BlueBus / factory changers):
+ *   39 <status> <function|0x80> 00 <discsLoaded> 00 <discNumber> 01 00 01 01 01
+ * The radio keeps re-sending a command until it sees a status reflecting it. */
+void ibus_send_cdc_status(ibus_t *ibus, uint8_t status, uint8_t function,
+                          uint8_t discsLoaded, uint8_t discNumber)
 {
-    uint8_t data[] = {0x00, status, function, 0x00, 0x01, 0x00, 0x00, ORANGEBUS_IBUS_CDC_DISC_ALL, 0x00, 0x00, 0x00};
+    uint8_t data[] = {
+        status,
+        (uint8_t)(function | ORANGEBUS_IBUS_CDC_FUNC_FLAG),
+        0x00,           /* error flags */
+        discsLoaded,
+        0x00,
+        discNumber,
+        0x01,           /* track number */
+        0x00,
+        0x01,           /* MP3 / audio-text bit */
+        0x01,           /* folder number */
+        0x01,           /* file number */
+    };
     ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_CDC, ORANGEBUS_IBUS_DEV_RAD, ORANGEBUS_IBUS_CMD_CDC_RESPONSE, data, sizeof(data));
 }
 
+/* Module status response ("pong"): READY answers a ping, ANNOUNCE is the
+ * "I'm here after a reset" broadcast. */
+void ibus_send_module_status(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t status)
+{
+    uint8_t data[] = {status};
+    ibus_send_packet(ibus, src, dst, ORANGEBUS_IBUS_CMD_MOD_STATUS_RESP, data, sizeof(data));
+}
+
+/* Module status request ("ping") - the target answers with CMD_MOD_STATUS_RESP. */
+void ibus_send_module_status_request(ibus_t *ibus, uint8_t src, uint8_t dst)
+{
+    ibus_send_packet(ibus, src, dst, ORANGEBUS_IBUS_CMD_MOD_STATUS_REQ, NULL, 0);
+}
+
+/* Asks the IKE for the ignition state (raw: 18 03 80 10 8B). */
+void ibus_send_ike_ignition_request(ibus_t *ibus)
+{
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_CDC, ORANGEBUS_IBUS_DEV_IKE, ORANGEBUS_IBUS_CMD_IKE_IGN_REQ, NULL, 0);
+}
+
+/* Telephone status bits go to the front displays (ANZV, 0xE7) like a factory TEL. */
 void ibus_send_tel_status(ibus_t *ibus, uint8_t status)
 {
     uint8_t data[] = {status};
-    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_TEL, ORANGEBUS_IBUS_DEV_RAD, ORANGEBUS_IBUS_TEL_CMD_STATUS, data, sizeof(data));
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_TEL, ORANGEBUS_IBUS_DEV_ANZV, ORANGEBUS_IBUS_TEL_CMD_STATUS, data, sizeof(data));
 }
 
+/* Telephone LED (red/green/yellow) on the BMBT / MID - single data byte. */
 void ibus_send_tel_led_status(ibus_t *ibus, uint8_t ledStatus)
 {
-    uint8_t data[] = {0x00, 0x00, ledStatus};
-    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_TEL, ORANGEBUS_IBUS_DEV_MID, ORANGEBUS_IBUS_TEL_CMD_LED_STATUS, data, sizeof(data));
+    uint8_t data[] = {ledStatus};
+    ibus_send_packet(ibus, ORANGEBUS_IBUS_DEV_TEL, ORANGEBUS_IBUS_DEV_ANZV, ORANGEBUS_IBUS_TEL_CMD_LED_STATUS, data, sizeof(data));
 }
 
 void ibus_send_tel_title_text(ibus_t *ibus, uint8_t titleType, const char *text, uint8_t options)

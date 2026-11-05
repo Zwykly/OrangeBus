@@ -22,6 +22,7 @@ struct ibus_t {
     QueueHandle_t uartQueue;
     bool debugMode;
     bool uart_installed;
+    bool firstFrameSeen;   /* set on the first valid foreign frame since boot */
     ibus_config_t *config;
 };
 

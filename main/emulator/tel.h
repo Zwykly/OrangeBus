@@ -15,6 +15,7 @@ void tel_set_connected(tel_t *tel, bool connected);
 void tel_set_call_active(tel_t *tel, bool active);
 void tel_set_call_incoming(tel_t *tel, bool incoming);
 void tel_set_caller_id(tel_t *tel, const char *id);
+void tel_on_ignition(tel_t *tel, bool ignitionOn);
 void tel_tick(tel_t *tel);
 bool tel_is_connected(const tel_t *tel);
 bool tel_is_call_active(const tel_t *tel);

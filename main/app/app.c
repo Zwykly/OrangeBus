@@ -46,6 +46,7 @@ typedef struct {
     char lastTitle[81];
     char lastArtist[81];
     volatile bool uiModeChanged;
+    bool mflVoiceHeld;   /* R/T button was held: suppress the release action */
 } ibus_ctx_t;
 
 /* TODO: Globalna instancja kontekstu - wzorzec singleton wymagany przez model
@@ -54,77 +55,132 @@ static ibus_ctx_t *s_ibus_ctx = NULL;
 
 static void set_active_ui(ibus_ctx_t *ic);
 
-/* Callback: zadanie statusu CDC od radia */
-static void on_cdc_status_req(uint8_t *data, uint8_t len)
+/* Callback: first valid frame from another module since boot - the bus is
+ * alive. Announce the CD changer and ask the IKE for the ignition state (we may
+ * have missed its broadcast while booting). Never sent into a silent bus, so it
+ * cannot wake a sleeping car. Same sequence as BlueBus. */
+static void on_first_frame(uint8_t *data, uint8_t len)
 {
+    (void)data;
+    (void)len;
     ibus_ctx_t *ic = s_ibus_ctx;
-    cdc_on_request(ic->cdc, data, len);
+    cdc_announce(ic->cdc);
+    ibus_send_ike_ignition_request(ic->ibus);
 }
 
-/* Callback: nacisniecie przycisku CDC (play/stop/next/prev z radia lub MFL) */
-static void on_cdc_button_press(uint8_t *data, uint8_t len)
+/* Callback: the radio pinged the CD changer (the driver already answered). */
+static void on_cdc_ping(uint8_t *data, uint8_t len)
+{
+    (void)data;
+    (void)len;
+    cdc_on_ping(s_ibus_ctx->cdc);
+}
+
+/* Callback: radio -> CDC command (status poll, play, stop, next/prev...).
+ * The CDC reply goes out first - the radio drops a changer that answers late -
+ * then the matching Bluetooth action is queued. */
+static void on_cdc_request(uint8_t *data, uint8_t len)
 {
     ibus_ctx_t *ic = s_ibus_ctx;
     if (len < 1) return;
-    uint8_t cmd = data[0];
-    switch (cmd) {
+    cdc_on_request(ic->cdc, data, len);
+
+    uint8_t command = data[0];
+    orangebus_a2dp_state_t a2dpState = a2dp_sink_get_state(ic->a2dp);
+    switch (command) {
     case ORANGEBUS_IBUS_CDC_CMD_START_PLAYING:
-        if (a2dp_sink_get_state(ic->a2dp) >= ORANGEBUS_A2DP_CONNECTED) {
+        if (a2dpState >= ORANGEBUS_A2DP_CONNECTED && a2dpState != ORANGEBUS_A2DP_PLAYING) {
             avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PLAY);
         }
-        cdc_set_playing(ic->cdc, true);
         ui_mid_on_cdc_start(ic->uiMid);
         break;
     case ORANGEBUS_IBUS_CDC_CMD_STOP_PLAYING:
-        if (a2dp_sink_get_state(ic->a2dp) == ORANGEBUS_A2DP_PLAYING) {
+    case ORANGEBUS_IBUS_CDC_CMD_PAUSE_PLAYING:
+        if (a2dpState == ORANGEBUS_A2DP_PLAYING) {
             avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PAUSE);
         }
-        cdc_set_playing(ic->cdc, false);
-        ui_mid_on_cdc_stop(ic->uiMid);
+        if (command == ORANGEBUS_IBUS_CDC_CMD_STOP_PLAYING) {
+            ui_mid_on_cdc_stop(ic->uiMid);
+        }
         break;
     case ORANGEBUS_IBUS_CDC_CMD_CHANGE_TRACK:
-        avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_FORWARD);
+    case ORANGEBUS_IBUS_CDC_CMD_CHANGE_TRACK_BL: {
+        /* Direction is in the second byte for both variants: 0x00 = next. */
+        bool next = (len < 2) || (data[1] == ORANGEBUS_IBUS_CDC_TRACK_NEXT);
+        avrcp_controller_send_passthrough(ic->avrcp,
+            next ? ESP_AVRC_PT_CMD_FORWARD : ESP_AVRC_PT_CMD_BACKWARD);
         break;
-    case ORANGEBUS_IBUS_CDC_CMD_CHANGE_TRACK_BL:
-        avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_BACKWARD);
-        break;
+    }
     default:
-        cdc_on_button_press(ic->cdc, data, len);
         break;
     }
 }
 
-/* Callback: przycisk MFL (kierownica multifunkcyjna) - speak, vol+/- */
+/* Callback: steering wheel R/T (voice) button. Mirrors BlueBus: a short press
+ * answers / ends calls (or toggles playback when we are the active source),
+ * a long hold toggles the phone's voice assistant. Next/Prev are ignored here:
+ * the radio turns them into CDC track-change commands. */
 static void on_mfl_button(uint8_t *data, uint8_t len)
 {
     ibus_ctx_t *ic = s_ibus_ctx;
     if (len < 1) return;
-    uint8_t btn = data[0];
-    if (btn == ORANGEBUS_IBUS_MFL_BTN_SPEAK) {
+    uint8_t button = data[0];
+
+    if (button == ORANGEBUS_IBUS_MFL_BTN_VOICE_PRESS) {
+        ic->mflVoiceHeld = false;
+    } else if (button == ORANGEBUS_IBUS_MFL_BTN_VOICE_HOLD) {
+        ic->mflVoiceHeld = true;
+        hfp_client_toggle_voice_recognition(ic->hfp);
+    } else if (button == ORANGEBUS_IBUS_MFL_BTN_VOICE_REL && !ic->mflVoiceHeld) {
         orangebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
         if (hfpState == ORANGEBUS_HFP_INCOMING) {
             hfp_client_answer(ic->hfp);
-        } else if (hfpState == ORANGEBUS_HFP_ACTIVE) {
+        } else if (hfpState == ORANGEBUS_HFP_ACTIVE || hfpState == ORANGEBUS_HFP_OUTGOING
+                   || hfpState == ORANGEBUS_HFP_AUDIO_OPEN) {
             hfp_client_reject(ic->hfp);
-        } else if (hfpState == ORANGEBUS_HFP_CONNECTED) {
-            hfp_client_redial(ic->hfp);
-        } else if (a2dp_sink_get_state(ic->a2dp) >= ORANGEBUS_A2DP_CONNECTED && hfpState < ORANGEBUS_HFP_CONNECTED) {
-            avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PLAY);
+        } else if (cdc_is_playing(ic->cdc)) {
+            orangebus_a2dp_state_t a2dpState = a2dp_sink_get_state(ic->a2dp);
+            if (a2dpState == ORANGEBUS_A2DP_PLAYING) {
+                avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PAUSE);
+            } else if (a2dpState >= ORANGEBUS_A2DP_CONNECTED) {
+                avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PLAY);
+            }
         }
-    } else if (btn == ORANGEBUS_IBUS_MFL_BTN_VOL_UP) {
-        audio_output_adjust_volume(ic->audio, 5);
-    } else if (btn == ORANGEBUS_IBUS_MFL_BTN_VOL_DOWN) {
-        audio_output_adjust_volume(ic->audio, -5);
     }
 }
 
-/* Callback: zmiana stanu zaplonu z IKE - powiadamia wszystkie moduly UI i komfort */
+/* Converts a volume data byte (bit0 = up, high nibble = steps) to a signed
+ * percentage change. */
+static int8_t volume_delta(uint8_t volumeByte, int8_t percentPerStep)
+{
+    uint8_t steps = ORANGEBUS_IBUS_VOL_STEPS(volumeByte);
+    if (steps == 0) steps = 1;
+    int16_t delta = (int16_t)steps * percentPerStep;
+    if (delta > 100) delta = 100;
+    return (volumeByte & ORANGEBUS_IBUS_VOL_DIR_UP_MASK) ? (int8_t)delta : (int8_t)-delta;
+}
+
+/* Callback: steering wheel volume keys. Outside a call the radio already
+ * applies them to its own output, so we only follow them while call audio
+ * (which we generate) is open - otherwise the volume would be applied twice. */
+static void on_mfl_volume(uint8_t *data, uint8_t len)
+{
+    ibus_ctx_t *ic = s_ibus_ctx;
+    if (len < 1) return;
+    orangebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
+    if (hfpState == ORANGEBUS_HFP_AUDIO_OPEN || hfpState == ORANGEBUS_HFP_ACTIVE) {
+        audio_output_adjust_volume(ic->audio, volume_delta(data[0], 5));
+    }
+}
+
+/* Callback: ignition status from the IKE - notifies every module. */
 static void on_ignition_status(uint8_t *data, uint8_t len)
 {
     ibus_ctx_t *ic = s_ibus_ctx;
     if (len < 1) return;
     bool on = (data[0] != ORANGEBUS_IBUS_IGNITION_OFF);
-    cdc_on_ignition(ic->cdc, data, len);
+    cdc_on_ignition(ic->cdc, on);
+    tel_on_ignition(ic->tel, on);
     ui_cd53_on_ignition(ic->uiCd53, on);
     ui_mir_on_ignition(ic->uiMir, on);
     ui_mid_on_ignition(ic->uiMid, on);
@@ -135,17 +191,12 @@ static void on_ignition_status(uint8_t *data, uint8_t len)
     }
 }
 
-/* Callback: zmiana glosnosci z radia */
-static void on_volume_change(uint8_t *data, uint8_t len)
+/* Callback: radio volume step (bit0 = up, high nibble = number of steps). */
+static void on_rad_volume(uint8_t *data, uint8_t len)
 {
     ibus_ctx_t *ic = s_ibus_ctx;
     if (len < 1) return;
-    uint8_t dir = data[0];
-    if (dir == ORANGEBUS_IBUS_RAD_VOL_UP) {
-        audio_output_adjust_volume(ic->audio, 2);
-    } else {
-        audio_output_adjust_volume(ic->audio, -2);
-    }
+    audio_output_adjust_volume(ic->audio, volume_delta(data[0], 2));
 }
 
 /* Callback: status GM (wariant ZKE) - wykrywanie sprzetu dla komfortu */
@@ -162,15 +213,16 @@ static void on_lm_status(uint8_t *data, uint8_t len)
     comfort_on_lm_status(ic->comfort, data, len);
 }
 
-/* Callback: remote central-locking button frame from GM (device 0x00).
- * Command 0x72 with payload 0x12 = lock, 0x11 = unlock. */
+/* Callback: key-fob frame from the GM (00 04 BF 72 xx). The action is the high
+ * nibble of xx: 1 = lock, 2 = unlock (low nibble = key number). */
 static void on_door_lock(uint8_t *data, uint8_t len)
 {
     ibus_ctx_t *ic = s_ibus_ctx;
     if (len < 1) return;
-    if (data[0] == ORANGEBUS_IBUS_GM_REMOTE_LOCK) {
+    uint8_t keyAction = ORANGEBUS_IBUS_GM_REMOTE_ACTION(data[0]);
+    if (keyAction == ORANGEBUS_IBUS_GM_REMOTE_LOCK) {
         comfort_on_door_lock(ic->comfort, true);
-    } else if (data[0] == ORANGEBUS_IBUS_GM_REMOTE_UNLOCK) {
+    } else if (keyAction == ORANGEBUS_IBUS_GM_REMOTE_UNLOCK) {
         comfort_on_door_lock(ic->comfort, false);
     }
 }
@@ -435,11 +487,13 @@ void app_run(void)
     ic->hfp = hfp;
     ic->audio = audio;
 
-    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_CDC_STATUS_REQ, on_cdc_status_req);
-    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_CDC_BUTTON_PRESS, on_cdc_button_press);
-    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_MFL_BUTTON_PRESS, on_mfl_button);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_FIRST_FRAME, on_first_frame);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_CDC_REQUEST, on_cdc_request);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_CDC_PING, on_cdc_ping);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_MFL_BUTTON, on_mfl_button);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_MFL_VOLUME, on_mfl_volume);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_IGNITION_STATUS, on_ignition_status);
-    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_VOLUME_CHANGE, on_volume_change);
+    ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_RAD_VOLUME, on_rad_volume);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_GM_STATUS, on_gm_status);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_LM_STATUS, on_lm_status);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_DOOR_LOCK, on_door_lock);

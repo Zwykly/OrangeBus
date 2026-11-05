@@ -13,7 +13,11 @@ void ibus_process(ibus_t *ibus);
 bool ibus_wait_for_data(ibus_t *ibus, uint32_t timeout_ms);
 void ibus_register_callback(ibus_t *ibus, orangebus_ibus_event_t event, orangebus_ibus_cb_t cb);
 void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t dataLen);
-void ibus_send_cdc_status(ibus_t *ibus, uint8_t status, uint8_t function);
+void ibus_send_cdc_status(ibus_t *ibus, uint8_t status, uint8_t function,
+                          uint8_t discsLoaded, uint8_t discNumber);
+void ibus_send_module_status(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t status);
+void ibus_send_module_status_request(ibus_t *ibus, uint8_t src, uint8_t dst);
+void ibus_send_ike_ignition_request(ibus_t *ibus);
 void ibus_send_tel_status(ibus_t *ibus, uint8_t status);
 void ibus_send_tel_led_status(ibus_t *ibus, uint8_t ledStatus);
 void ibus_send_tel_title_text(ibus_t *ibus, uint8_t titleType, const char *text, uint8_t options);

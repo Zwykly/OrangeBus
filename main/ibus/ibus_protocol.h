@@ -51,20 +51,43 @@
 #define ORANGEBUS_IBUS_CMD_IKE_IGN_REQ 0x10
 #define ORANGEBUS_IBUS_CMD_IKE_IGN_RESP 0x11
 
+/* Module status ("ping/pong") payload byte sent with CMD_MOD_STATUS_RESP.
+ * READY answers a ping, ANNOUNCE tells everyone we (re)appeared after a reset. */
+#define ORANGEBUS_IBUS_MOD_STATUS_READY 0x00
+#define ORANGEBUS_IBUS_MOD_STATUS_ANNOUNCE 0x01
+
 /* --- Komendy emulatora CDC (zmieniacza CD) --- */
 #define ORANGEBUS_IBUS_CDC_CMD_GET_STATUS 0x00
 #define ORANGEBUS_IBUS_CDC_CMD_STOP_PLAYING 0x01
 #define ORANGEBUS_IBUS_CDC_CMD_PAUSE_PLAYING 0x02
 #define ORANGEBUS_IBUS_CDC_CMD_START_PLAYING 0x03
+#define ORANGEBUS_IBUS_CDC_CMD_SEEK 0x04
+#define ORANGEBUS_IBUS_CDC_CMD_CHANGE_TRACK_BL 0x05 /* Blaupunkt radios */
+#define ORANGEBUS_IBUS_CDC_CMD_CD_CHANGE 0x06
+#define ORANGEBUS_IBUS_CDC_CMD_SCAN 0x07
+#define ORANGEBUS_IBUS_CDC_CMD_RANDOM_MODE 0x08
 #define ORANGEBUS_IBUS_CDC_CMD_CHANGE_TRACK 0x0A
-#define ORANGEBUS_IBUS_CDC_CMD_CHANGE_TRACK_BL 0x05
+/* Second data byte of CHANGE_TRACK / CHANGE_TRACK_BL: 0x00 = next, else previous */
+#define ORANGEBUS_IBUS_CDC_TRACK_NEXT 0x00
 
 /* --- Statusy i flagi funkcjonalne CDC --- */
 #define ORANGEBUS_IBUS_CDC_STAT_STOP 0x00
+#define ORANGEBUS_IBUS_CDC_STAT_PAUSE 0x01
 #define ORANGEBUS_IBUS_CDC_STAT_PLAYING 0x02
+#define ORANGEBUS_IBUS_CDC_STAT_FAST_REV 0x04
 #define ORANGEBUS_IBUS_CDC_FUNC_NOT_PLAY 0x02
 #define ORANGEBUS_IBUS_CDC_FUNC_PLAYING 0x09
+#define ORANGEBUS_IBUS_CDC_FUNC_PAUSE 0x0C
+#define ORANGEBUS_IBUS_CDC_FUNC_SCAN_MODE 0x19
+#define ORANGEBUS_IBUS_CDC_FUNC_RANDOM_MODE 0x29
+/* Bit OR-ed into the function byte of every CDC status frame (as BlueBus does) */
+#define ORANGEBUS_IBUS_CDC_FUNC_FLAG 0x80
+/* "Discs loaded" bitmask and reported disc number */
+#define ORANGEBUS_IBUS_CDC_DISC_LOADED_1 0x01
 #define ORANGEBUS_IBUS_CDC_DISC_ALL 0x3F
+/* Reporting disc 7 (which does not exist) makes the radio send a CDC command
+ * for every disc button press - used for non-navigation UIs. */
+#define ORANGEBUS_IBUS_CDC_DISC_NUMBER_VIRTUAL 0x07
 
 /* --- Komendy i statusy emulatora TEL (telefonu) --- */
 #define ORANGEBUS_IBUS_TEL_CMD_LED_STATUS 0x2B
@@ -76,6 +99,7 @@
 #define ORANGEBUS_IBUS_TEL_STATUS_POWER_CALL 0x35
 
 #define ORANGEBUS_IBUS_TEL_LED_OFF 0x00
+#define ORANGEBUS_IBUS_TEL_LED_RED_BLINK 0x03
 #define ORANGEBUS_IBUS_TEL_LED_GREEN_BLINK 0x30
 #define ORANGEBUS_IBUS_TEL_LED_GREEN_ON 0x10
 #define ORANGEBUS_IBUS_TEL_LED_RED_ON 0x01
@@ -88,11 +112,15 @@
 #define ORANGEBUS_IBUS_IGNITION_OFF 0x00
 #define ORANGEBUS_IBUS_IGNITION_KLR 0x01
 #define ORANGEBUS_IBUS_IGNITION_KL15 0x03
+#define ORANGEBUS_IBUS_IGNITION_KL50 0x07
 
 /* --- GM (ZKE central locking) --- */
 #define ORANGEBUS_IBUS_GM_CMD_REMOTE 0x72
-#define ORANGEBUS_IBUS_GM_REMOTE_LOCK 0x12
-#define ORANGEBUS_IBUS_GM_REMOTE_UNLOCK 0x11
+/* The key-fob action is the HIGH nibble of the first data byte
+ * (low nibble = key number), e.g. 0x12 = lock with key 2, 0x22 = unlock. */
+#define ORANGEBUS_IBUS_GM_REMOTE_ACTION(db1) (((db1) >> 4) & 0x0F)
+#define ORANGEBUS_IBUS_GM_REMOTE_LOCK 0x01
+#define ORANGEBUS_IBUS_GM_REMOTE_UNLOCK 0x02
 
 /* --- Komendy MID (wielofunkcyjny wyswietlacz) --- */
 #define ORANGEBUS_IBUS_MID_CMD_MODE 0x20
@@ -100,14 +128,21 @@
 #define ORANGEBUS_IBUS_MID_BUTTON_PRESS 0x31
 #define ORANGEBUS_IBUS_MID_MAX_CHARS 24
 
-/* --- Glosnosc z radia --- */
-#define ORANGEBUS_IBUS_RAD_VOL_DOWN 0x00
-#define ORANGEBUS_IBUS_RAD_VOL_UP 0x01
-
 /* --- Przyciski MFL (kierownica multifunkcyjna) --- */
-#define ORANGEBUS_IBUS_MFL_BTN_SPEAK 0x01
-#define ORANGEBUS_IBUS_MFL_BTN_VOL_UP 0x11
-#define ORANGEBUS_IBUS_MFL_BTN_VOL_DOWN 0x10
+/* MFL sends button events with CMD 0x3B and volume keys with CMD 0x32.
+ * Next/Prev are also translated by the radio into CDC commands, so we only
+ * act on the voice (R/T / speak) button here. */
+#define ORANGEBUS_IBUS_MFL_CMD_BTN_PRESS 0x3B
+#define ORANGEBUS_IBUS_MFL_CMD_VOL_PRESS 0x32
+#define ORANGEBUS_IBUS_MFL_BTN_NEXT_REL 0x21
+#define ORANGEBUS_IBUS_MFL_BTN_PREV_REL 0x28
+#define ORANGEBUS_IBUS_MFL_BTN_VOICE_PRESS 0x80
+#define ORANGEBUS_IBUS_MFL_BTN_VOICE_HOLD 0x90
+#define ORANGEBUS_IBUS_MFL_BTN_VOICE_REL 0xA0
+/* Volume data byte (both MFL and radio): bit0 = direction (1 = up),
+ * high nibble = number of steps. */
+#define ORANGEBUS_IBUS_VOL_DIR_UP_MASK 0x01
+#define ORANGEBUS_IBUS_VOL_STEPS(db1) (((db1) >> 4) & 0x0F)
 
 /* --- Komfort: centralny zamek (GM/ZKE) i swiatla (LCM) --- */
 #define ORANGEBUS_IBUS_GLO_CMD_LOCK 0x0B
@@ -126,6 +161,8 @@
 #define ORANGEBUS_IBUS_CMD_GT_WRITE_ZONE 0x62
 #define ORANGEBUS_IBUS_CMD_GT_WRITE_INDEX 0x60
 #define ORANGEBUS_IBUS_CMD_GT_CLEAR 0x63
+#define ORANGEBUS_IBUS_CMD_GT_CHANGE_UI_REQ 0x20
+#define ORANGEBUS_IBUS_CMD_GT_MENU_SELECT 0x31
 
 /* --- MIR (Business Nav) - maks. dlugosc tekstu --- */
 #define ORANGEBUS_IBUS_MIR_MAX_CHARS 11

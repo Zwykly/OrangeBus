@@ -12,6 +12,12 @@
 #define BLINK_OFF_MS 300
 #define PING_INTERVAL 15000
 
+/* Wrap-safe "now is at or past deadline" for uint32 millisecond timestamps. */
+static bool time_reached(uint32_t now, uint32_t deadline)
+{
+    return (int32_t)(now - deadline) >= 0;
+}
+
 struct comfort_t {
     ibus_t *ibus;
     ibus_config_t *config;
@@ -102,13 +108,13 @@ void comfort_tick(comfort_t *c)
     if (!c) return;
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
-    if (c->blinkActive && c->blinkOffTime > 0 && now >= c->blinkOffTime) {
+    if (c->blinkActive && time_reached(now, c->blinkOffTime)) {
         send_blink_command(c, false);
         c->blinkActive = false;
         c->blinkOffTime = 0;
     }
 
-    if (c->pendingLock && now >= c->lockDueTime) {
+    if (c->pendingLock && time_reached(now, c->lockDueTime)) {
         c->pendingLock = false;
         c->lockDueTime = 0;
         /* Re-validate: an unlock may have arrived after scheduling. */
@@ -118,17 +124,16 @@ void comfort_tick(comfort_t *c)
         }
     }
 
-    if ((now - c->lastLcmPing) >= PING_INTERVAL) {
-        uint8_t data[] = { 0x00 };
-        ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_LCM,
-            ORANGEBUS_IBUS_CMD_MOD_STATUS_REQ, data, sizeof(data));
+    /* Variant detection pings. Only with the ignition on (each ping wakes the
+     * GM/LCM and would keep a sleeping car awake) and only until the variant
+     * is known. Frame: 18 03 <dst> 01 <crc> - a ping carries no data byte. */
+    if (!c->ignitionOn) return;
+    if (c->lmVariant == ORANGEBUS_COMFORT_LM_UNKNOWN && (now - c->lastLcmPing) >= PING_INTERVAL) {
+        ibus_send_module_status_request(c->ibus, ORANGEBUS_IBUS_DEV_CDC, ORANGEBUS_IBUS_DEV_LCM);
         c->lastLcmPing = now;
     }
-
-    if ((now - c->lastGmPing) >= PING_INTERVAL) {
-        uint8_t data[] = { 0x00 };
-        ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_GM,
-            ORANGEBUS_IBUS_CMD_MOD_STATUS_REQ, data, sizeof(data));
+    if (c->gmVariant == ORANGEBUS_COMFORT_GM_UNKNOWN && (now - c->lastGmPing) >= PING_INTERVAL) {
+        ibus_send_module_status_request(c->ibus, ORANGEBUS_IBUS_DEV_CDC, ORANGEBUS_IBUS_DEV_GM);
         c->lastGmPing = now;
     }
 }

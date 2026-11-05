@@ -14,6 +14,7 @@
 struct tel_t {
     ibus_t *ibus;
     ibus_config_t *config;
+    bool ignitionOn;
     bool connected;
     bool callActive;
     bool callIncoming;
@@ -144,10 +145,23 @@ void tel_set_caller_id(tel_t *tel, const char *id)
     }
 }
 
-/* Cyklicznie wysyła status i stan diody LED */
-void tel_tick(tel_t *tel)
+void tel_on_ignition(tel_t *tel, bool ignitionOn)
 {
     if (!tel) return;
+    bool wasOn = tel->ignitionOn;
+    tel->ignitionOn = ignitionOn;
+    if (ignitionOn && !wasOn) {
+        /* Displays just woke up: show the current phone state right away. */
+        tel_send_led(tel);
+        tel_send_status(tel);
+    }
+}
+
+/* Periodic status/LED refresh. Silent with the ignition off so OrangeBus never
+ * keeps the car's modules (and the bus) awake. */
+void tel_tick(tel_t *tel)
+{
+    if (!tel || !tel->ignitionOn) return;
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     if (tel->connected && (now - tel->lastStatusTime) >= TEL_STATUS_INTERVAL) {
         tel_send_status(tel);
