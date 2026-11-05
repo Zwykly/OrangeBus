@@ -11,10 +11,10 @@
 #define TAG "SPP"
 #define SPP_SERVER_NAME "BMW_OrangeBus_SPP"
 
-/* TODO: Globalna instancja singleton - wymagana przez model callbackow ESP-IDF */
+/* Bluedroid callbacks carry no user pointer, so the instance is kept here. */
 static spp_server_t *s_instance = NULL;
 
-/* Wysyla tekst odpowiedzi do polaczonego klienta SPP */
+/* Sends a reply to the connected SPP client (no-op when disconnected). */
 void spp_send_response(spp_server_t *spp, const char *msg)
 {
     if (!spp || !spp->connected || spp->handle == 0) return;
@@ -73,7 +73,8 @@ static void spp_cmd_task(void *arg)
     }
 }
 
-/* Callback zdarzen SPP (init, start, connect, disconnect, data) */
+/* SPP event callback (BT task): server start, connect/disconnect, data.
+ * Incoming bytes are only buffered here; spp_cmd_task parses them. */
 static void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 {
     spp_server_t *spp = s_instance;

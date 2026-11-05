@@ -1,6 +1,8 @@
 #ifndef A2DP_SINK_H
 #define A2DP_SINK_H
 
+/* A2DP sink: receives music from the phone and tracks the stream state. */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

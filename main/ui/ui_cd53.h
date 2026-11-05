@@ -1,6 +1,8 @@
 #ifndef UI_CD53_H
 #define UI_CD53_H
 
+/* CD53 UI: single-line radio display (business CD / BM53 radios). */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

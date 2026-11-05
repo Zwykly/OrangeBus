@@ -15,7 +15,7 @@
 #define IBUS_TX_IDLE_MS 10
 #define IBUS_TX_DEFER_RETRIES 5
 
-/* Wysyla surowy bufor: w trybie debug loguje z opisem, w normalnym trybie zapisuje na UART.
+/* Writes a complete frame to the bus (in debug mode it is only logged).
  * Serialized by txMutex so ibus_task, spp_cmd_task and CLI cannot interleave. */
 void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
 {
@@ -34,7 +34,7 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
         }
         return;
     }
-    if (!ibus->uart_installed) return;
+    if (!ibus->uartInstalled) return;
     if (ibus->txMutex) xSemaphoreTake(ibus->txMutex, portMAX_DELAY);
     /* Listen-before-talk: defer while a byte arrived within the idle window
      * so we do not collide with radio/GM/LCM frames. Bounded so a babbling
@@ -42,7 +42,7 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
      * NOTE: HZ=100 quantizes timing to 10 ms ticks, hence a full-tick delay. */
     for (int i = 0; i < IBUS_TX_DEFER_RETRIES; i++) {
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        if ((now - ibus->rxLastByte) >= IBUS_TX_IDLE_MS) break;
+        if ((now - ibus->rxLastByteMs) >= IBUS_TX_IDLE_MS) break;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     uart_write_bytes(ORANGEBUS_IBUS_UART_NUM, buf, len);
@@ -53,7 +53,7 @@ void ibus_send_raw(ibus_t *ibus, const uint8_t *buf, uint8_t len)
     if (ibus->txMutex) xSemaphoreGive(ibus->txMutex);
 }
 
-/* Skladaje pakiet I-BUS (src|len|dst|cmd|data...|crc) i wysyla przez send_raw.
+/* Builds an I-BUS frame (SRC LEN DST CMD DATA... CRC) and sends it.
  * Packet is staged in a stack-local buffer so concurrent callers never share
  * mutable state; the UART write itself is serialized inside ibus_send_raw. */
 void ibus_send_packet(ibus_t *ibus, uint8_t src, uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t dataLen)

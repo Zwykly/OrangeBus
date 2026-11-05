@@ -1,6 +1,8 @@
 #ifndef UI_BMBT_H
 #define UI_BMBT_H
 
+/* BMBT UI: navigation screen (GT -> BMBT) dashboard with title/artist/album. */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

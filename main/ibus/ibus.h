@@ -1,6 +1,10 @@
 #ifndef IBUS_H
 #define IBUS_H
 
+/* I-BUS driver: UART set-up (9600 8E1 via the TH3122 transceiver), frame
+ * receive/dispatch (ibus_driver.c) and frame builders for every message we
+ * send (ibus_protocol.c). */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

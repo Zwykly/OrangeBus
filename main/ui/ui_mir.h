@@ -1,6 +1,8 @@
 #ifndef UI_MIR_H
 #define UI_MIR_H
 
+/* MIR UI: Business Navigation (MIR) title line. */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

@@ -20,7 +20,7 @@ struct ui_mid_t {
     char displayText[MID_DISPLAY_TEXT_MAX];
 };
 
-/* Tworzy nową instancję UI MID */
+/* Creates the MID display UI (inactive until set_active). */
 ui_mid_t *ui_mid_create(ibus_t *ibus, ibus_config_t *config)
 {
     ui_mid_t *ui = calloc(1, sizeof(ui_mid_t));
@@ -35,7 +35,7 @@ void ui_mid_destroy(ui_mid_t *ui)
     free(ui);
 }
 
-/* Inicjalizuje stan UI MID */
+/* Resets the UI state. */
 esp_err_t ui_mid_init(ui_mid_t *ui)
 {
     if (!ui) return ESP_ERR_INVALID_ARG;
@@ -47,7 +47,8 @@ esp_err_t ui_mid_init(ui_mid_t *ui)
     return ESP_OK;
 }
 
-/* Okresowe odświeżanie wyświetlacza MID */
+/* Re-sends the current text every refresh interval (the display may have
+ * overwritten it). Silent with the ignition off or when inactive. */
 void ui_mid_tick(ui_mid_t *ui)
 {
     if (!ui || !ui->active || !ui->ignitionOn || !ui->telModeActive) return;
@@ -59,7 +60,7 @@ void ui_mid_tick(ui_mid_t *ui)
     }
 }
 
-/* Wyświetla tytuł na ekranie MID */
+/* Stores the track text and shows it right away if this UI is active. */
 void ui_mid_show_title(ui_mid_t *ui, const char *text)
 {
     if (!ui || !text) return;
@@ -72,7 +73,7 @@ void ui_mid_show_title(ui_mid_t *ui, const char *text)
     }
 }
 
-/* Czyści wyświetlacz MID */
+/* Clears our text from the display. */
 void ui_mid_clear(ui_mid_t *ui)
 {
     if (!ui) return;
@@ -82,7 +83,7 @@ void ui_mid_clear(ui_mid_t *ui)
     }
 }
 
-/* Reaguje na zmianę stanu zapłonu */
+/* Ignition changed: clear the display when it goes off. */
 void ui_mid_on_ignition(ui_mid_t *ui, bool on)
 {
     if (!ui) return;
@@ -116,7 +117,7 @@ void ui_mid_on_cdc_stop(ui_mid_t *ui)
     }
 }
 
-/* Ustawia aktywność UI MID */
+/* Enables / disables this UI; clears the display when disabled. */
 void ui_mid_set_active(ui_mid_t *ui, bool active)
 {
     if (!ui) return;

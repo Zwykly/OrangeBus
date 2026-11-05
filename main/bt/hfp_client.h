@@ -1,6 +1,9 @@
 #ifndef HFP_CLIENT_H
 #define HFP_CLIENT_H
 
+/* HFP hands-free client: phone calls (answer / reject / redial, voice
+ * recognition) and the SCO call audio path. */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

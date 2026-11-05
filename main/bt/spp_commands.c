@@ -14,7 +14,8 @@
 
 #define TAG "SPP"
 
-/* Obsluga komend EQ: ON/OFF, SAVE/LOAD preset, ustawienie pasa, zapytanie */
+/* EQ commands: EQ:ON / EQ:OFF / EQ:SAVE:<name> / EQ:LOAD:<name> /
+ * EQ:<band>:<freq>:<q>:<gain> / EQ? */
 static void handle_eq_cmd(spp_server_t *spp, const char *cmd)
 {
     if (strncmp(cmd, "EQ:ON", 5) == 0) {
@@ -59,7 +60,8 @@ static void handle_eq_cmd(spp_server_t *spp, const char *cmd)
     }
 }
 
-/* Obsluga komend IBUS: debug, TEL, CDC, CONFIG, SEND hex, zapytanie statusu */
+/* IBUS commands: IBUS:DEBUG:*, IBUS:TEL:*, IBUS:CDC:*, IBUS:CONFIG:*,
+ * IBUS:SEND:<hex frame without CRC>, IBUS? */
 static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
 {
     if (strncmp(cmd, "IBUS:DEBUG:ON", 13) == 0) {
@@ -183,7 +185,7 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
     }
 }
 
-/* Punkt wejsciowy parsera komend - rozdziela linie EQ i IBUS */
+/* Dispatches one received command line by prefix. */
 void spp_process_line(spp_server_t *spp, const char *line)
 {
     if (strncmp(line, "EQ", 2) == 0) {

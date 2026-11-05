@@ -15,7 +15,7 @@ struct a2dp_sink_t {
 
 static a2dp_sink_t *s_instance = NULL;
 
-/* Callback przekazujacy przychodzace dane audio A2DP do wyjscia audio */
+/* Bluedroid A2DP data callback: forwards decoded PCM to the audio output. */
 static void a2dp_data_cb(const uint8_t *data, uint32_t len)
 {
     if (s_instance) {
@@ -23,7 +23,7 @@ static void a2dp_data_cb(const uint8_t *data, uint32_t len)
     }
 }
 
-/* Glowny callback zdarzen A2DP (polaczenie, stan audio) */
+/* A2DP event callback: connection and audio stream state (BT task). */
 static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
 {
     a2dp_sink_t *sink = s_instance;
@@ -55,7 +55,7 @@ static void a2dp_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     }
 }
 
-/* Konstruktor sinka A2DP - alokuje strukture i wiaze z wyjsciem audio */
+/* Creates the A2DP sink bound to an audio output. */
 a2dp_sink_t *a2dp_sink_create(audio_output_t *audio)
 {
     a2dp_sink_t *sink = calloc(1, sizeof(a2dp_sink_t));
@@ -102,7 +102,7 @@ const char *a2dp_sink_state_str(orangebus_a2dp_state_t state)
     }
 }
 
-/* Rejestruje callbacki A2DP w stosie Bluetooth i inicjalizuje sink */
+/* Registers the A2DP callbacks with Bluedroid and starts the sink profile. */
 esp_err_t a2dp_sink_register_callbacks(a2dp_sink_t *sink)
 {
     if (!sink) return ESP_ERR_INVALID_ARG;

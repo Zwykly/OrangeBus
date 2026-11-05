@@ -9,7 +9,7 @@
 
 #define TAG "BT_MGR"
 
-/* Callback zdarzen GAP Bluetooth (autoryzacja, PIN, SSP, zmiana trybu) */
+/* GAP callback: pairing (legacy PIN or SSP auto-confirm) and link events. */
 static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch (event) {
@@ -43,7 +43,8 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
     }
 }
 
-/* Inicjalizuje menedzera Bluetooth: NVS, kontroler, Bluedroid, nazwe urzadzenia i bezpieczenstwo */
+/* Brings up Bluetooth Classic: NVS, controller, Bluedroid, device name and
+ * pairing parameters. Profiles are registered by their own modules. */
 esp_err_t bt_manager_init(void)
 {
     esp_err_t ret;

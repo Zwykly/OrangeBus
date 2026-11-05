@@ -137,11 +137,11 @@ ibus_t *ibus_create(ibus_config_t *config)
 void ibus_destroy(ibus_t *ibus)
 {
     if (ibus) {
-        if (ibus->uart_installed) {
+        if (ibus->uartInstalled) {
             uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
         }
         ibus->uartQueue = NULL;
-        ibus->uart_installed = false;
+        ibus->uartInstalled = false;
         if (ibus->txMutex) vSemaphoreDelete(ibus->txMutex);
         free(ibus);
     }
@@ -165,7 +165,7 @@ esp_err_t ibus_init(ibus_t *ibus)
         IBUS_UART_QUEUE_LEN, &ibus->uartQueue, 0);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "UART driver install failed: %s. I-BUS unavailable, continuing...", esp_err_to_name(ret));
-        ibus->uart_installed = false;
+        ibus->uartInstalled = false;
         ibus->debugMode = false;
         return ESP_OK;
     }
@@ -174,7 +174,7 @@ esp_err_t ibus_init(ibus_t *ibus)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART param config failed: %s", esp_err_to_name(ret));
         uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
-        ibus->uart_installed = false;
+        ibus->uartInstalled = false;
         return ESP_OK;
     }
 
@@ -184,13 +184,13 @@ esp_err_t ibus_init(ibus_t *ibus)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART set pin failed: %s", esp_err_to_name(ret));
         uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
-        ibus->uart_installed = false;
+        ibus->uartInstalled = false;
         return ESP_OK;
     }
 
     gpio_pullup_en((gpio_num_t)ORANGEBUS_IBUS_RX);
 
-    ibus->uart_installed = true;
+    ibus->uartInstalled = true;
     ibus->debugMode = false;
     ESP_LOGI(TAG, "I-BUS UART initialized (9600 8E1, TX=%d, RX=%d, debug=%s)",
         ORANGEBUS_IBUS_TX, ORANGEBUS_IBUS_RX, ibus->debugMode ? "ON" : "OFF");
@@ -241,7 +241,7 @@ static bool ibus_drain_events(ibus_t *ibus)
  * as a byte arrives instead of polling. Returns true if data is waiting. */
 bool ibus_wait_for_data(ibus_t *ibus, uint32_t timeout_ms)
 {
-    if (!ibus || !ibus->uart_installed || !ibus->uartQueue) {
+    if (!ibus || !ibus->uartInstalled || !ibus->uartQueue) {
         vTaskDelay(pdMS_TO_TICKS(timeout_ms));
         return false;
     }
@@ -317,7 +317,7 @@ void ibus_process(ibus_t *ibus)
 {
     if (!ibus) return;
     if (ibus->debugMode) return;
-    if (!ibus->uart_installed) return;
+    if (!ibus->uartInstalled) return;
     ibus_drain_events(ibus);
     uint8_t chunk[32];
     int readLen;
@@ -325,10 +325,10 @@ void ibus_process(ibus_t *ibus)
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
         /* Long silence since the last byte: whatever is buffered is a broken
          * frame, start over with this chunk. */
-        if (ibus->rxLen > 0 && (now - ibus->rxLastByte) > IBUS_RX_INTER_BYTE_TIMEOUT_MS) {
+        if (ibus->rxLen > 0 && (now - ibus->rxLastByteMs) > IBUS_RX_INTER_BYTE_TIMEOUT_MS) {
             ibus->rxLen = 0;
         }
-        ibus->rxLastByte = now;
+        ibus->rxLastByteMs = now;
         for (int i = 0; i < readLen; i++) {
             if (ibus->rxLen >= ORANGEBUS_IBUS_MAX_PKT) {
                 ibus_resync_shift(ibus);

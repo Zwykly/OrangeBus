@@ -1,6 +1,9 @@
 #ifndef SPP_SERVER_H
 #define SPP_SERVER_H
 
+/* SPP (Bluetooth serial) server: text command interface for the companion
+ * app - EQ and I-BUS settings, see spp_commands.c. */
+
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"

@@ -1,6 +1,6 @@
 #include "app.h"
 
-/* Wejsciowa funkcja ESP-IDF - deleguje do modulu aplikacji */
+/* ESP-IDF entry point - everything lives in the app module. */
 void app_main(void)
 {
     app_run();

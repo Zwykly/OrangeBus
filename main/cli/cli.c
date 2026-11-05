@@ -30,10 +30,11 @@ struct cli_t {
     ibus_config_t *config;
 };
 
-/* Zadanie czytajace pojedyncze znaki z stdin i wywolujace komendy.
- * Komendy jednoliterowe: +/- glosnosc, m mute, p/s play/pause,
- * n/b next/prev, a/r/d HFP, v/V voice, h status, e/E EQ, i/I IBUS,
- * u/U/c/C konfiguracja UI/autoplay/komfort */
+/* Serial console task: one character = one command.
+ *   +/- volume, m mute, p/s play/pause, n/b next/prev,
+ *   a/r/d answer/reject/redial, v/V voice assistant (AVRCP/HFP),
+ *   h status, e/E EQ toggle/bands, i/I I-BUS debug/status,
+ *   u/U/c/C UI mode / autoplay / comfort settings. */
 static void serial_cmd_task(void *arg)
 {
     cli_t *cli = (cli_t *)arg;
@@ -46,7 +47,7 @@ static void serial_cmd_task(void *arg)
         }
         char c = buf[0];
         switch (c) {
-        /* --- Kontrola glosnosci --- */
+        /* --- Volume --- */
         case '+':
             audio_output_adjust_volume(cli->audio, 5);
             ESP_LOGI(TAG, "Vol: %d%%", audio_output_get_volume(cli->audio));
@@ -59,7 +60,7 @@ static void serial_cmd_task(void *arg)
             audio_output_toggle_mute(cli->audio);
             ESP_LOGI(TAG, "%s", audio_output_is_muted(cli->audio) ? "MUTED" : "UNMUTED");
             break;
-        /* --- Odtwarzanie A2DP/AVRCP --- */
+        /* --- Playback (AVRCP) --- */
         case 'p':
             if (a2dp_sink_get_state(cli->a2dp) >= ORANGEBUS_A2DP_CONNECTED) {
                 avrcp_controller_send_passthrough(cli->avrcp, ESP_AVRC_PT_CMD_PLAY);
@@ -80,7 +81,7 @@ static void serial_cmd_task(void *arg)
             avrcp_controller_send_passthrough(cli->avrcp, ESP_AVRC_PT_CMD_BACKWARD);
             ESP_LOGI(TAG, "CMD: Previous track");
             break;
-        /* --- HFP (telefon) --- */
+        /* --- Phone (HFP) --- */
         case 'a':
             if (hfp_client_get_state(cli->hfp) == ORANGEBUS_HFP_INCOMING) {
                 hfp_client_answer(cli->hfp);
@@ -116,7 +117,7 @@ static void serial_cmd_task(void *arg)
                          hfp_client_is_vra_active(cli->hfp) ? "OFF" : "ON");
             }
             break;
-        /* --- Status systemu --- */
+        /* --- System status --- */
         case 'h':
         case '?':
             ESP_LOGI(TAG, "=== Status ===");
@@ -144,7 +145,7 @@ static void serial_cmd_task(void *arg)
                 ESP_LOGI(TAG, " Voice: ACTIVE");
             }
             break;
-        /* --- EQ (korektor) --- */
+        /* --- Equalizer --- */
         case 'e':
             eq_processor_set_enabled(cli->eq, !eq_processor_is_enabled(cli->eq));
             ESP_LOGI(TAG, "EQ: %s", eq_processor_is_enabled(cli->eq) ? "ON" : "OFF");
@@ -158,7 +159,7 @@ static void serial_cmd_task(void *arg)
                 }
             }
             break;
-        /* --- I-BUS debug i status --- */
+        /* --- I-BUS debug and status --- */
         case 'i':
             if (cli->ibus) {
                 ibus_set_debug_mode(cli->ibus, !ibus_is_debug_mode(cli->ibus));
@@ -189,7 +190,7 @@ static void serial_cmd_task(void *arg)
                          ibus_config_get(cli->config, IBUS_CFG_COMFORT_MIRRORS));
             }
             break;
-        /* --- Konfiguracja: UI / autoplay / komfort --- */
+        /* --- Settings: UI / autoplay / comfort --- */
         case 'u':
             if (cli->config) {
                 /* Cycle CD53 -> BMBT -> MID -> MIR -> CD53. An unknown stored
@@ -237,7 +238,7 @@ static void serial_cmd_task(void *arg)
     }
 }
 
-/* Konstruktor CLI - wstrzykuje referencje do wszystkich modulow */
+/* Creates the CLI with references to the modules it controls. */
 cli_t *cli_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp, hfp_client_t *hfp, eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, tel_t *tel, ibus_config_t *config)
 {
     cli_t *cli = calloc(1, sizeof(cli_t));
@@ -259,7 +260,7 @@ void cli_destroy(cli_t *cli)
     if (cli) free(cli);
 }
 
-/* Uruchamia zadanie CLI do obslugi komend z portu szeregowego.
+/* Starts the serial console task.
  * Lower priority than ibus_task so CLI parsing never delays radio polls. */
 void cli_start(cli_t *cli)
 {

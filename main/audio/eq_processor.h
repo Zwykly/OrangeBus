@@ -1,6 +1,9 @@
 #ifndef EQ_PROCESSOR_H
 #define EQ_PROCESSOR_H
 
+/* 5-band peaking equalizer (float biquads) with NVS presets. Bypassed when
+ * disabled or when every band is at 0 dB. */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
