@@ -1,4 +1,26 @@
 idf_component_register(
-SRCS "bluebus.c" "audio_output.c" "avrcp_controller.c" "a2dp_sink.c" "hfp_client.c" "bt_manager.c" "cli.c" "eq_processor.c" "spp_server.c"
-PRIV_REQUIRES bt nvs_flash driver esp_driver_gpio esp_driver_i2s
-INCLUDE_DIRS ".")
+SRCS
+    "main.c"
+    "app/app.c"
+    "ibus/ibus_driver.c"
+    "ibus/ibus_protocol.c"
+    "ibus/ibus_debug.c"
+    "ibus/ibus_config.c"
+    "bt/bt_manager.c"
+    "bt/a2dp_sink.c"
+    "bt/avrcp_controller.c"
+    "bt/hfp_client.c"
+    "bt/spp_server.c"
+    "bt/spp_commands.c"
+    "audio/audio_output.c"
+    "audio/eq_processor.c"
+    "ui/ui_bmbt.c"
+    "ui/ui_cd53.c"
+    "ui/ui_mid.c"
+    "ui/ui_mir.c"
+    "emulator/cdc.c"
+    "emulator/tel.c"
+    "comfort/comfort.c"
+    "cli/cli.c"
+PRIV_REQUIRES bt nvs_flash driver esp_driver_gpio esp_driver_i2s esp_driver_uart esp_ringbuf freertos
+INCLUDE_DIRS "." "app" "board" "common" "ibus" "bt" "audio" "ui" "emulator" "comfort" "cli")

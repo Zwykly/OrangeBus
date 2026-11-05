@@ -25,6 +25,7 @@ const eq_band_params_t *eq_processor_get_band(const eq_processor_t *eq, int inde
 
 void eq_processor_set_enabled(eq_processor_t *eq, bool enabled);
 bool eq_processor_is_enabled(const eq_processor_t *eq);
+bool eq_processor_is_flat(const eq_processor_t *eq);
 
 void eq_processor_process_frame(eq_processor_t *eq, int16_t *left, int16_t *right);
 void eq_processor_reset(eq_processor_t *eq);

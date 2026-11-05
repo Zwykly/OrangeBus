@@ -1,0 +1,228 @@
+#include "comfort.h"
+#include <stdlib.h>
+#include <string.h>
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "ibus.h"
+#include "ibus_config.h"
+
+#define TAG "COMFORT"
+#define BLINK_ON_MS 500
+#define BLINK_OFF_MS 300
+#define PING_INTERVAL 15000
+
+/* Wrap-safe "now is at or past deadline" for uint32 millisecond timestamps. */
+static bool time_reached(uint32_t now, uint32_t deadline)
+{
+    return (int32_t)(now - deadline) >= 0;
+}
+
+struct comfort_t {
+    ibus_t *ibus;
+    ibus_config_t *config;
+    orangebus_comfort_gm_variant_t gmVariant;
+    orangebus_comfort_lm_variant_t lmVariant;
+    bool ignitionOn;
+    bool lastLockState;
+    bool blinkActive;
+    uint32_t blinkOffTime;
+    bool pendingLock;
+    uint32_t lockDueTime;
+    uint32_t lastLcmPing;
+    uint32_t lastGmPing;
+};
+
+static void send_lock_command(comfort_t *c, bool lock)
+{
+    uint8_t data[] = { lock ? 0x00 : 0x01 };
+    ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_GM,
+        lock ? ORANGEBUS_IBUS_GLO_CMD_LOCK : ORANGEBUS_IBUS_GLO_CMD_UNLOCK, data, sizeof(data));
+}
+
+static void send_blink_command(comfort_t *c, bool on)
+{
+    if (c->lmVariant == ORANGEBUS_COMFORT_LM_UNKNOWN) return;
+    uint8_t data[] = { 0x00, on ? 0xFF : 0x00 };
+    ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_LCM,
+        on ? ORANGEBUS_IBUS_LCM_CMD_BLINK_ON : ORANGEBUS_IBUS_LCM_CMD_BLINK_OFF, data, sizeof(data));
+}
+
+static void send_mirror_fold(comfort_t *c, bool fold)
+{
+    if (c->gmVariant == ORANGEBUS_COMFORT_GM_ZKE3_GM5 || c->gmVariant == ORANGEBUS_COMFORT_GM_ZKE5) {
+        uint8_t data[] = { fold ? 0x01 : 0x00, 0x00 };
+        ibus_send_packet(c->ibus, ORANGEBUS_IBUS_DEV_GLO, ORANGEBUS_IBUS_DEV_GM,
+            ORANGEBUS_IBUS_GM_CMD_MIRROR, data, sizeof(data));
+    }
+}
+
+static bool is_blink_enabled(comfort_t *c)
+{
+    return ibus_config_get(c->config, "comfort_blink") != 0;
+}
+
+static bool is_locks_enabled(comfort_t *c)
+{
+    return ibus_config_get(c->config, "comfort_locks") != 0;
+}
+
+static bool is_mirrors_enabled(comfort_t *c)
+{
+    return ibus_config_get(c->config, "comfort_mirrors") != 0;
+}
+
+comfort_t *comfort_create(ibus_t *ibus, ibus_config_t *config)
+{
+    comfort_t *c = calloc(1, sizeof(comfort_t));
+    if (!c) return NULL;
+    c->ibus = ibus;
+    c->config = config;
+    return c;
+}
+
+void comfort_destroy(comfort_t *c)
+{
+    free(c);
+}
+
+esp_err_t comfort_init(comfort_t *c)
+{
+    if (!c) return ESP_ERR_INVALID_ARG;
+    c->gmVariant = ORANGEBUS_COMFORT_GM_UNKNOWN;
+    c->lmVariant = ORANGEBUS_COMFORT_LM_UNKNOWN;
+    c->ignitionOn = false;
+    c->lastLockState = false;
+    c->blinkActive = false;
+    c->blinkOffTime = 0;
+    c->pendingLock = false;
+    c->lockDueTime = 0;
+    c->lastLcmPing = 0;
+    c->lastGmPing = 0;
+    ESP_LOGI(TAG, "Comfort initialized");
+    return ESP_OK;
+}
+
+void comfort_tick(comfort_t *c)
+{
+    if (!c) return;
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
+    if (c->blinkActive && time_reached(now, c->blinkOffTime)) {
+        send_blink_command(c, false);
+        c->blinkActive = false;
+        c->blinkOffTime = 0;
+    }
+
+    if (c->pendingLock && time_reached(now, c->lockDueTime)) {
+        c->pendingLock = false;
+        c->lockDueTime = 0;
+        /* Re-validate: an unlock may have arrived after scheduling. */
+        if (c->lastLockState && is_locks_enabled(c) &&
+            c->gmVariant != ORANGEBUS_COMFORT_GM_UNKNOWN) {
+            send_lock_command(c, true);
+        }
+    }
+
+    /* Variant detection pings. Only with the ignition on (each ping wakes the
+     * GM/LCM and would keep a sleeping car awake) and only until the variant
+     * is known. Frame: 18 03 <dst> 01 <crc> - a ping carries no data byte. */
+    if (!c->ignitionOn) return;
+    if (c->lmVariant == ORANGEBUS_COMFORT_LM_UNKNOWN && (now - c->lastLcmPing) >= PING_INTERVAL) {
+        ibus_send_module_status_request(c->ibus, ORANGEBUS_IBUS_DEV_CDC, ORANGEBUS_IBUS_DEV_LCM);
+        c->lastLcmPing = now;
+    }
+    if (c->gmVariant == ORANGEBUS_COMFORT_GM_UNKNOWN && (now - c->lastGmPing) >= PING_INTERVAL) {
+        ibus_send_module_status_request(c->ibus, ORANGEBUS_IBUS_DEV_CDC, ORANGEBUS_IBUS_DEV_GM);
+        c->lastGmPing = now;
+    }
+}
+
+void comfort_on_ignition(comfort_t *c, bool on)
+{
+    if (!c) return;
+    c->ignitionOn = on;
+}
+
+/* Wired to ORANGEBUS_IBUS_EVT_DOOR_LOCK via app.c. Non-blocking: the delayed
+ * central-lock pulse is scheduled in comfort_tick (lockDueTime). */
+void comfort_on_door_lock(comfort_t *c, bool locked)
+{
+    if (!c) return;
+    if (!is_locks_enabled(c) && !is_blink_enabled(c)) return;
+
+    bool wasLocked = c->lastLockState;
+    c->lastLockState = locked;
+
+    if (locked && !wasLocked) {
+        if (is_blink_enabled(c)) {
+            send_blink_command(c, true);
+            c->blinkOffTime = xTaskGetTickCount() * portTICK_PERIOD_MS + BLINK_ON_MS;
+            c->blinkActive = true;
+        }
+        if (is_locks_enabled(c) && c->gmVariant != ORANGEBUS_COMFORT_GM_UNKNOWN) {
+            c->pendingLock = true;
+            c->lockDueTime = xTaskGetTickCount() * portTICK_PERIOD_MS + BLINK_ON_MS;
+        }
+    } else if (!locked && wasLocked) {
+        /* Cancel any still-pending lock pulse so it cannot re-lock after this. */
+        c->pendingLock = false;
+        c->lockDueTime = 0;
+        if (is_blink_enabled(c)) {
+            send_blink_command(c, true);
+            c->blinkOffTime = xTaskGetTickCount() * portTICK_PERIOD_MS + (BLINK_ON_MS * 2);
+            c->blinkActive = true;
+        }
+        if (is_mirrors_enabled(c)) {
+            send_mirror_fold(c, false);
+        }
+    }
+}
+
+void comfort_on_gm_status(comfort_t *c, uint8_t *data, uint8_t len)
+{
+    if (!c || len < 3) return;
+    uint8_t type = data[0];
+    if (type == 0x01) {
+        c->gmVariant = ORANGEBUS_COMFORT_GM_ZKE3_GM1;
+    } else if (type == 0x05) {
+        c->gmVariant = ORANGEBUS_COMFORT_GM_ZKE3_GM5;
+    } else if (type == 0x02 || type == 0x06) {
+        c->gmVariant = ORANGEBUS_COMFORT_GM_ZKE5;
+    }
+    ESP_LOGI(TAG, "GM variant: %d", c->gmVariant);
+}
+
+void comfort_on_lm_status(comfort_t *c, uint8_t *data, uint8_t len)
+{
+    if (!c || len < 3) return;
+    uint8_t ident = data[0];
+    if (ident <= 0x01) {
+        c->lmVariant = ORANGEBUS_COMFORT_LM_LME38;
+    } else if (ident == 0x02) {
+        c->lmVariant = ORANGEBUS_COMFORT_LM_LCM;
+    } else if (ident == 0x03) {
+        c->lmVariant = ORANGEBUS_COMFORT_LM_LCM_II;
+    } else {
+        c->lmVariant = ORANGEBUS_COMFORT_LM_LSZ;
+    }
+    ESP_LOGI(TAG, "LM variant: %d", c->lmVariant);
+}
+
+orangebus_comfort_gm_variant_t comfort_get_gm_variant(const comfort_t *c)
+{
+	return c ? c->gmVariant : ORANGEBUS_COMFORT_GM_UNKNOWN;
+}
+
+orangebus_comfort_lm_variant_t comfort_get_lm_variant(const comfort_t *c)
+{
+	return c ? c->lmVariant : ORANGEBUS_COMFORT_LM_UNKNOWN;
+}
+
+void comfort_send_test_blink(comfort_t *c)
+{
+	if (!c || c->lmVariant == ORANGEBUS_COMFORT_LM_UNKNOWN) return;
+	send_blink_command(c, true);
+	c->blinkOffTime = xTaskGetTickCount() * portTICK_PERIOD_MS + BLINK_ON_MS;
+	c->blinkActive = true;
+}
