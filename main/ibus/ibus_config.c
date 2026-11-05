@@ -22,6 +22,8 @@ static const config_entry_t s_entries[IBUS_CFG_KEY_COUNT] = {
     [IBUS_CFG_COMFORT_LOCKS]    = {"comfort_locks", 0},
     [IBUS_CFG_COMFORT_MIRRORS]  = {"comfort_mirrors", 0},
     [IBUS_CFG_META_MODE]        = {"meta_mode", 0},
+    [IBUS_CFG_PWR_GATE]         = {"pwr_gate", 1},
+    [IBUS_CFG_PWR_IDLE_S]       = {"pwr_idle_s", 60},
 };
 
 struct ibus_config_t {

@@ -1,6 +1,5 @@
 #include "bt_manager.h"
 #include "esp_log.h"
-#include "nvs_flash.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
@@ -49,13 +48,7 @@ esp_err_t bt_manager_init(void)
 {
     esp_err_t ret;
 
-    ESP_LOGI(TAG, "[1/6] NVS init...");
-    ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
+    /* NVS is initialised by app_run() before the I-BUS side starts. */
 
     ESP_LOGI(TAG, "[2/6] Release BLE memory...");
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));

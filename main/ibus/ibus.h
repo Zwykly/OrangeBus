@@ -33,6 +33,7 @@ void ibus_send_gt_write_index(ibus_t *ibus, uint8_t index, const char *text);
 void ibus_send_gt_clear(ibus_t *ibus);
 void ibus_send_business_nav_title(ibus_t *ibus, const char *text);
 void ibus_send_dsp_config(ibus_t *ibus, uint8_t mode);
+uint32_t ibus_get_last_rx_ms(const ibus_t *ibus);
 bool ibus_is_debug_mode(const ibus_t *ibus);
 void ibus_set_debug_mode(ibus_t *ibus, bool enabled);
 uint8_t ibus_crc(const uint8_t *buf, uint8_t len);

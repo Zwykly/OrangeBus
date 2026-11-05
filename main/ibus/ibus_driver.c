@@ -191,6 +191,7 @@ esp_err_t ibus_init(ibus_t *ibus)
     gpio_pullup_en((gpio_num_t)ORANGEBUS_IBUS_RX);
 
     ibus->uartInstalled = true;
+    ibus->lastRxFrameMs = xTaskGetTickCount() * portTICK_PERIOD_MS;
     ibus->debugMode = false;
     ESP_LOGI(TAG, "I-BUS UART initialized (9600 8E1, TX=%d, RX=%d, debug=%s)",
         ORANGEBUS_IBUS_TX, ORANGEBUS_IBUS_RX, ibus->debugMode ? "ON" : "OFF");
@@ -278,6 +279,9 @@ static void ibus_rx_handle_frame(ibus_t *ibus, uint8_t frameLen, uint32_t now)
         && memcmp(ibus->rxBuf, ibus->lastTxBuf, frameLen) == 0);
     if (isEcho) return;
 
+    /* Bus activity from another module - the power manager's idle timer. */
+    ibus->lastRxFrameMs = now;
+
     if (!ibus->firstFrameSeen) {
         /* The bus is alive (the car woke up, or we booted into a running car). */
         ibus->firstFrameSeen = true;
@@ -337,6 +341,13 @@ void ibus_process(ibus_t *ibus)
             ibus_rx_parse_buffer(ibus, now);
         }
     }
+}
+
+/* Time (ms since boot) of the last frame received from another module.
+ * Written and read only in ibus_task, so no locking is needed. */
+uint32_t ibus_get_last_rx_ms(const ibus_t *ibus)
+{
+    return ibus ? ibus->lastRxFrameMs : 0;
 }
 
 bool ibus_is_debug_mode(const ibus_t *ibus)

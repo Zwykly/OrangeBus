@@ -20,4 +20,14 @@
 #define ORANGEBUS_IBUS_TX_BUF_SIZE 128
 #define ORANGEBUS_IBUS_MAX_PKT 64
 
+/* --- Power gating: GPIO27 -> BOB-12009 ch3 -> TH3122 EN ---
+ * released/high = stay powered, low = TH3122 sleeps and cuts the buck input.
+ * Not a strapping pin; never enable its internal pull-down, gpio_hold or
+ * deep sleep on it. */
+#define ORANGEBUS_PWR_HOLD 27
+
+#define ORANGEBUS_PWR_MIN_AWAKE_MS   30000   /* never power off sooner after boot */
+#define ORANGEBUS_PWR_OFF_GRACE_MS    3000   /* still alive after this -> power-off failed */
+#define ORANGEBUS_PWR_RETRY_MS      300000   /* back-off after a failed power-off */
+
 #endif

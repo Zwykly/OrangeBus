@@ -209,6 +209,13 @@ void comfort_on_lm_status(comfort_t *c, uint8_t *data, uint8_t len)
     ESP_LOGI(TAG, "LM variant: %d", c->lmVariant);
 }
 
+/* True while a delayed lock pulse or an indicator blink is still pending -
+ * the power manager must not cut power before it has been sent. */
+bool comfort_is_busy(const comfort_t *c)
+{
+    return c && (c->pendingLock || c->blinkActive);
+}
+
 orangebus_comfort_gm_variant_t comfort_get_gm_variant(const comfort_t *c)
 {
 	return c ? c->gmVariant : ORANGEBUS_COMFORT_GM_UNKNOWN;
