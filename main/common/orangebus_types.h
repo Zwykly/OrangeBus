@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* --- Stany transportu A2DP (strumien audio Bluetooth) --- */
+/* --- A2DP (Bluetooth music stream) state --- */
 typedef enum {
     ORANGEBUS_A2DP_IDLE = 0,
     ORANGEBUS_A2DP_CONNECTING,
@@ -13,7 +13,7 @@ typedef enum {
     ORANGEBUS_A2DP_PAUSED,
 } orangebus_a2dp_state_t;
 
-/* --- Stany HFP (profile hands-free telefonu) --- */
+/* --- HFP (hands-free phone) state --- */
 typedef enum {
     ORANGEBUS_HFP_IDLE = 0,
     ORANGEBUS_HFP_CONNECTED,
@@ -23,7 +23,7 @@ typedef enum {
     ORANGEBUS_HFP_ACTIVE,
 } orangebus_hfp_state_t;
 
-/* --- Zdarzenia I-BUS przekazywane do warstwy aplikacji --- */
+/* --- I-BUS events delivered to the application --- */
 typedef enum {
     ORANGEBUS_IBUS_EVT_FIRST_FRAME = 0,   /* first valid foreign frame since boot */
     ORANGEBUS_IBUS_EVT_CDC_REQUEST,       /* radio -> CDC command (0x38), incl. status poll */
@@ -44,10 +44,10 @@ typedef enum {
     ORANGEBUS_IBUS_EVT_COUNT,
 } orangebus_ibus_event_t;
 
-/* Typ funkcji wywolywanej przy zdarzeniu I-BUS */
+/* I-BUS event callback: data = frame payload (after CMD), len = payload length. */
 typedef void (*orangebus_ibus_cb_t)(uint8_t *data, uint8_t len);
 
-/* --- Tryby interfejsu UI (zalezne od sprzetu radia) --- */
+/* --- Display UI mode (depends on the radio / display in the car) --- */
 typedef enum {
     ORANGEBUS_UI_MODE_CD53 = 1,
     ORANGEBUS_UI_MODE_BMBT = 2,
@@ -55,7 +55,7 @@ typedef enum {
     ORANGEBUS_UI_MODE_MIR = 5,
 } orangebus_ui_mode_t;
 
-/* --- Warianty modulu komfortu GM (ZKE) --- */
+/* --- GM (ZKE body module) variants --- */
 typedef enum {
     ORANGEBUS_COMFORT_GM_UNKNOWN = 0,
     ORANGEBUS_COMFORT_GM_ZKE3_GM1,
@@ -63,7 +63,7 @@ typedef enum {
     ORANGEBUS_COMFORT_GM_ZKE5,
 } orangebus_comfort_gm_variant_t;
 
-/* --- Warianty modulu swiatel LM (LCM/LSZ) --- */
+/* --- Light module (LCM/LSZ) variants --- */
 typedef enum {
     ORANGEBUS_COMFORT_LM_UNKNOWN = 0,
     ORANGEBUS_COMFORT_LM_LME38,
@@ -72,14 +72,14 @@ typedef enum {
     ORANGEBUS_COMFORT_LM_LSZ,
 } orangebus_comfort_lm_variant_t;
 
-/* Metadane utworu z AVRCP (tytul, wykonawca, album) */
+/* Track metadata from AVRCP (title, artist, album). */
 typedef struct {
     char title[81];
     char artist[81];
     char album[81];
 } orangebus_metadata_t;
 
-/* Deklaracje forward dla nieprzezroczystych typow modulow */
+/* Opaque module handles (defined inside each module). */
 typedef struct audio_output_t audio_output_t;
 typedef struct avrcp_controller_t avrcp_controller_t;
 typedef struct a2dp_sink_t a2dp_sink_t;

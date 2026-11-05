@@ -11,59 +11,70 @@
 #define TAG "SPP"
 #define SPP_SERVER_NAME "BMW_OrangeBus_SPP"
 
-/* TODO: Globalna instancja singleton - wymagana przez model callbackow ESP-IDF */
+/* Bluedroid callbacks carry no user pointer, so the instance is kept here. */
 static spp_server_t *s_instance = NULL;
 
-/* Wysyla tekst odpowiedzi do polaczonego klienta SPP */
+/* Sends a reply to the connected SPP client (no-op when disconnected). */
 void spp_send_response(spp_server_t *spp, const char *msg)
 {
     if (!spp || !spp->connected || spp->handle == 0) return;
     esp_spp_write(spp->handle, (int)strlen(msg), (uint8_t *)msg);
 }
 
-/* Zadanie przetwarzajace przychodzace komendy - budzone semaforem z callbacku
- * SPP zamiast sztywnego pollingu co 10 ms (CODE_REVIEW 3.3), z dostepem do
- * bufora serializowanym przez bufMutex (CODE_REVIEW 1.6). */
+/* Removes the first complete line ("...\r" or "...\n") from the receive
+ * buffer and copies it to `line`. Returns false when no full line is buffered.
+ * Caller holds bufMutex. */
+static bool take_line_locked(spp_server_t *spp, char *line, size_t lineSize)
+{
+    /* Skip leftover CR/LF from the previous line ending. */
+    int skip = 0;
+    while (skip < spp->cmd_len && (spp->cmd_buf[skip] == '\r' || spp->cmd_buf[skip] == '\n')) skip++;
+
+    int end = skip;
+    while (end < spp->cmd_len && spp->cmd_buf[end] != '\r' && spp->cmd_buf[end] != '\n') end++;
+    if (end >= spp->cmd_len) {
+        /* No terminator yet: just drop the skipped separators. */
+        if (skip > 0) {
+            memmove(spp->cmd_buf, spp->cmd_buf + skip, spp->cmd_len - skip);
+            spp->cmd_len -= skip;
+        }
+        return false;
+    }
+
+    size_t lineLen = (size_t)(end - skip);
+    if (lineLen >= lineSize) lineLen = lineSize - 1;
+    memcpy(line, spp->cmd_buf + skip, lineLen);
+    line[lineLen] = '\0';
+
+    int consumed = end + 1;
+    memmove(spp->cmd_buf, spp->cmd_buf + consumed, spp->cmd_len - consumed);
+    spp->cmd_len -= consumed;
+    return true;
+}
+
+/* Command task: sleeps until the SPP callback signals new data, then runs
+ * every complete line. Commands execute OUTSIDE the buffer lock, so a slow
+ * command (e.g. an I-BUS send) never makes the BT callback drop data. */
 static void spp_cmd_task(void *arg)
 {
     spp_server_t *spp = (spp_server_t *)arg;
+    char line[SPP_MAX_CMD];
     while (1) {
-        if (spp->dataReady) {
-            xSemaphoreTake(spp->dataReady, pdMS_TO_TICKS(10));
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(10));
+        xSemaphoreTake(spp->dataReady, portMAX_DELAY);
+        while (1) {
+            xSemaphoreTake(spp->bufMutex, portMAX_DELAY);
+            bool haveLine = take_line_locked(spp, line, sizeof(line));
+            /* A full buffer without any line ending can never complete: reset. */
+            if (!haveLine && spp->cmd_len >= SPP_MAX_CMD - 1) spp->cmd_len = 0;
+            xSemaphoreGive(spp->bufMutex);
+            if (!haveLine) break;
+            if (line[0] != '\0') spp_process_line(spp, line);
         }
-        if (spp->bufMutex) xSemaphoreTake(spp->bufMutex, portMAX_DELAY);
-        if (spp->cmd_len > 0) {
-            spp->cmd_buf[spp->cmd_len] = '\0';
-
-            char *start = spp->cmd_buf;
-            while (*start) {
-                char *cr = strchr(start, '\r');
-                char *lf = strchr(start, '\n');
-                char *end = cr ? cr : lf;
-                if (!end) break;
-
-                *end = '\0';
-                if (end > start) {
-                    spp_process_line(spp, start);
-                }
-                start = end + 1;
-                while (*start == '\r' || *start == '\n') start++;
-            }
-
-            int remaining = spp->cmd_len - (int)(start - spp->cmd_buf);
-            if (remaining > 0 && start != spp->cmd_buf) {
-                memmove(spp->cmd_buf, start, remaining);
-            }
-            spp->cmd_len = remaining;
-        }
-        if (spp->bufMutex) xSemaphoreGive(spp->bufMutex);
-        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
-/* Callback zdarzen SPP (init, start, connect, disconnect, data) */
+/* SPP event callback (BT task): server start, connect/disconnect, data.
+ * Incoming bytes are only buffered here; spp_cmd_task parses them. */
 static void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 {
     spp_server_t *spp = s_instance;
@@ -119,7 +130,7 @@ static void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
     }
 }
 
-spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, tel_t *tel, ibus_config_t *config, comfort_t *comfort, avrcp_controller_t *avrcp, volatile bool *uiModeChanged)
+spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, tel_t *tel, ibus_config_t *config, comfort_t *comfort, avrcp_controller_t *avrcp)
 {
     spp_server_t *spp = calloc(1, sizeof(spp_server_t));
     if (!spp) return NULL;
@@ -130,7 +141,6 @@ spp_server_t *spp_server_create(eq_processor_t *eq, ibus_t *ibus, cdc_t *cdc, te
     spp->config = config;
     spp->comfort = comfort;
     spp->avrcp = avrcp;
-    spp->uiModeChanged = uiModeChanged;
     spp->dataReady = xSemaphoreCreateBinary();
     spp->bufMutex = xSemaphoreCreateMutex();
     if (!spp->dataReady || !spp->bufMutex) {

@@ -23,7 +23,7 @@ struct tel_t {
     uint32_t lastLEDTime;
 };
 
-/* Wysyła aktualny status telefonu na magistralę IBus */
+/* Sends the telephone status bits to the front displays. */
 static void tel_send_status(tel_t *tel)
 {
     uint8_t status;
@@ -38,7 +38,7 @@ static void tel_send_status(tel_t *tel)
     tel->lastStatusTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
 }
 
-/* Wysyła stan diody LED w zależności od połączenia i rozmowy */
+/* Sends the telephone LED colour for the current connection / call state. */
 static void tel_send_led(tel_t *tel)
 {
     uint8_t led;
@@ -55,7 +55,7 @@ static void tel_send_led(tel_t *tel)
     tel->lastLEDTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
 }
 
-/* Wysyła identyfikator dzwoniącego na wyświetlacz radia */
+/* Shows the caller ID on the display. */
 static void tel_send_caller_id(tel_t *tel)
 {
     if (strlen(tel->callerId) == 0) return;
@@ -68,7 +68,7 @@ static void tel_send_caller_id(tel_t *tel)
     }
 }
 
-/* Tworzy nową instancję emulatora telefonu TEL */
+/* Creates the telephone (TEL, 0xC8) emulator. */
 tel_t *tel_create(ibus_t *ibus, ibus_config_t *config)
 {
     tel_t *tel = calloc(1, sizeof(tel_t));
@@ -83,7 +83,7 @@ void tel_destroy(tel_t *tel)
     free(tel);
 }
 
-/* Inicjalizuje stan emulatora telefonu */
+/* Resets the emulator state. */
 esp_err_t tel_init(tel_t *tel)
 {
     if (!tel) return ESP_ERR_INVALID_ARG;
@@ -94,7 +94,7 @@ esp_err_t tel_init(tel_t *tel)
     return ESP_OK;
 }
 
-/* Ustawia stan połączenia z telefonem i aktualizuje wskaźniki */
+/* Phone (dis)connected over HFP: update LED and status. */
 void tel_set_connected(tel_t *tel, bool connected)
 {
     if (!tel) return;
@@ -103,7 +103,7 @@ void tel_set_connected(tel_t *tel, bool connected)
     tel_send_status(tel);
 }
 
-/* Aktywuje lub kończy rozmowę i aktualizuje status */
+/* Call started / ended: update status, LED and caller ID. */
 void tel_set_call_active(tel_t *tel, bool active)
 {
     if (!tel) return;
@@ -123,7 +123,7 @@ void tel_set_call_active(tel_t *tel, bool active)
     }
 }
 
-/* Ustawia stan połączenia przychodzącego i powiadamia radio */
+/* Phone is ringing: update status and LED. */
 void tel_set_call_incoming(tel_t *tel, bool incoming)
 {
     if (!tel) return;
@@ -134,7 +134,7 @@ void tel_set_call_incoming(tel_t *tel, bool incoming)
     }
 }
 
-/* Ustawia identyfikator dzwoniącego i wysyła go na wyświetlacz */
+/* Stores the caller ID and shows it while a call is ringing or active. */
 void tel_set_caller_id(tel_t *tel, const char *id)
 {
     if (!tel || !id) return;

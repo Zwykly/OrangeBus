@@ -1,6 +1,10 @@
 #ifndef AUDIO_OUTPUT_H
 #define AUDIO_OUTPUT_H
 
+/* Audio output: I2S DAC (A2DP music at 44.1 kHz, call audio at 8/16 kHz) and
+ * the PCM1808 microphone input. A2DP frames are queued by the BT task and
+ * processed (EQ + volume) and written by a dedicated audio task. */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

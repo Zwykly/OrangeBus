@@ -19,7 +19,7 @@ struct ui_cd53_t {
     char displayText[CD53_DISPLAY_TEXT_MAX];
 };
 
-/* Tworzy nową instancję UI CD53 */
+/* Creates the CD53 display UI (inactive until set_active). */
 ui_cd53_t *ui_cd53_create(ibus_t *ibus, ibus_config_t *config)
 {
     ui_cd53_t *ui = calloc(1, sizeof(ui_cd53_t));
@@ -34,7 +34,7 @@ void ui_cd53_destroy(ui_cd53_t *ui)
     free(ui);
 }
 
-/* Inicjalizuje stan UI CD53 */
+/* Resets the UI state. */
 esp_err_t ui_cd53_init(ui_cd53_t *ui)
 {
     if (!ui) return ESP_ERR_INVALID_ARG;
@@ -45,7 +45,8 @@ esp_err_t ui_cd53_init(ui_cd53_t *ui)
     return ESP_OK;
 }
 
-/* Okresowe odświeżanie wyświetlacza CD53 */
+/* Re-sends the current text every refresh interval (the display may have
+ * overwritten it). Silent with the ignition off or when inactive. */
 void ui_cd53_tick(ui_cd53_t *ui)
 {
     if (!ui || !ui->active || !ui->ignitionOn) return;
@@ -57,7 +58,7 @@ void ui_cd53_tick(ui_cd53_t *ui)
     }
 }
 
-/* Wyświetla tytuł na ekranie CD53 */
+/* Stores the track text and shows it right away if this UI is active. */
 void ui_cd53_show_title(ui_cd53_t *ui, const char *text)
 {
     if (!ui || !text) return;
@@ -70,7 +71,7 @@ void ui_cd53_show_title(ui_cd53_t *ui, const char *text)
     }
 }
 
-/* Czyści wyświetlacz CD53 */
+/* Clears our text from the display. */
 void ui_cd53_clear(ui_cd53_t *ui)
 {
     if (!ui) return;
@@ -81,7 +82,7 @@ void ui_cd53_clear(ui_cd53_t *ui)
     }
 }
 
-/* Reaguje na zmianę stanu zapłonu */
+/* Ignition changed: clear the display when it goes off. */
 void ui_cd53_on_ignition(ui_cd53_t *ui, bool on)
 {
     if (!ui) return;
@@ -91,7 +92,7 @@ void ui_cd53_on_ignition(ui_cd53_t *ui, bool on)
     }
 }
 
-/* Ustawia aktywność UI CD53 */
+/* Enables / disables this UI; clears the display when disabled. */
 void ui_cd53_set_active(ui_cd53_t *ui, bool active)
 {
     if (!ui) return;

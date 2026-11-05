@@ -1,6 +1,8 @@
 #ifndef A2DP_SINK_H
 #define A2DP_SINK_H
 
+/* A2DP sink: receives music from the phone and tracks the stream state. */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
@@ -13,11 +15,8 @@ esp_err_t a2dp_sink_init(a2dp_sink_t *sink);
 
 orangebus_a2dp_state_t a2dp_sink_get_state(const a2dp_sink_t *sink);
 void a2dp_sink_set_state(a2dp_sink_t *sink, orangebus_a2dp_state_t state);
-/* Deprecated: exposes unlocked internal state. Use get/set_state instead. */
-orangebus_a2dp_state_t *a2dp_sink_get_state_ptr(a2dp_sink_t *sink);
 const char *a2dp_sink_state_str(orangebus_a2dp_state_t state);
 
-void a2dp_sink_set_hfp_state_ref(a2dp_sink_t *sink, orangebus_hfp_state_t *ref);
 esp_err_t a2dp_sink_register_callbacks(a2dp_sink_t *sink);
 
 #endif

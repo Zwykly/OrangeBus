@@ -1,6 +1,8 @@
 #ifndef UI_MID_H
 #define UI_MID_H
 
+/* MID UI: multi-information display (E38/E39 with MID). */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

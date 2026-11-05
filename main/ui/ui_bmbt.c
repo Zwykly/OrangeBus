@@ -45,7 +45,7 @@ static void bmbt_show_dashboard(ui_bmbt_t *ui)
     ibus_send_gt_write_index(ui->ibus, 5, ui->playing ? "[Playing]" : "[Paused]");
 }
 
-/* Tworzy nową instancję UI BMBT */
+/* Creates the BMBT display UI (inactive until set_active). */
 ui_bmbt_t *ui_bmbt_create(ibus_t *ibus, ibus_config_t *config)
 {
     ui_bmbt_t *ui = calloc(1, sizeof(ui_bmbt_t));
@@ -60,7 +60,7 @@ void ui_bmbt_destroy(ui_bmbt_t *ui)
     free(ui);
 }
 
-/* Inicjalizuje stan UI BMBT */
+/* Resets the UI state. */
 esp_err_t ui_bmbt_init(ui_bmbt_t *ui)
 {
     if (!ui) return ESP_ERR_INVALID_ARG;
@@ -74,7 +74,8 @@ esp_err_t ui_bmbt_init(ui_bmbt_t *ui)
     return ESP_OK;
 }
 
-/* Okresowe odświeżanie wyświetlacza BMBT */
+/* Re-sends the current text every refresh interval (the display may have
+ * overwritten it). Silent with the ignition off or when inactive. */
 void ui_bmbt_tick(ui_bmbt_t *ui)
 {
     if (!ui || !ui->active || !ui->ignitionOn) return;
@@ -116,7 +117,7 @@ void ui_bmbt_on_playback(ui_bmbt_t *ui, bool playing)
     }
 }
 
-/* Reaguje na zmianę stanu zapłonu */
+/* Ignition changed: clear the display when it goes off. */
 void ui_bmbt_on_ignition(ui_bmbt_t *ui, bool on)
 {
     if (!ui) return;
@@ -129,7 +130,7 @@ void ui_bmbt_on_ignition(ui_bmbt_t *ui, bool on)
     }
 }
 
-/* Czyści wyświetlacz BMBT */
+/* Clears our text from the display. */
 void ui_bmbt_clear(ui_bmbt_t *ui)
 {
     if (!ui) return;
@@ -138,7 +139,7 @@ void ui_bmbt_clear(ui_bmbt_t *ui)
     }
 }
 
-/* Ustawia aktywność UI BMBT */
+/* Enables / disables this UI; clears the display when disabled. */
 void ui_bmbt_set_active(ui_bmbt_t *ui, bool active)
 {
     if (!ui) return;

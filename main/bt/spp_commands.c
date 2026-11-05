@@ -14,19 +14,8 @@
 
 #define TAG "SPP"
 
-/* Rozwiazanie numeru trybu UI na nazwe do odpowiedzi SPP */
-static const char *ui_mode_str(uint8_t mode)
-{
-    switch (mode) {
-    case ORANGEBUS_UI_MODE_CD53: return "CD53";
-    case ORANGEBUS_UI_MODE_BMBT: return "BMBT";
-    case ORANGEBUS_UI_MODE_MID:  return "MID";
-    case ORANGEBUS_UI_MODE_MIR:  return "MIR";
-    default: return "UNKNOWN";
-    }
-}
-
-/* Obsluga komend EQ: ON/OFF, SAVE/LOAD preset, ustawienie pasa, zapytanie */
+/* EQ commands: EQ:ON / EQ:OFF / EQ:SAVE:<name> / EQ:LOAD:<name> /
+ * EQ:<band>:<freq>:<q>:<gain> / EQ? */
 static void handle_eq_cmd(spp_server_t *spp, const char *cmd)
 {
     if (strncmp(cmd, "EQ:ON", 5) == 0) {
@@ -71,7 +60,8 @@ static void handle_eq_cmd(spp_server_t *spp, const char *cmd)
     }
 }
 
-/* Obsluga komend IBUS: debug, TEL, CDC, CONFIG, SEND hex, zapytanie statusu */
+/* IBUS commands: IBUS:DEBUG:*, IBUS:TEL:*, IBUS:CDC:*, IBUS:CONFIG:*,
+ * IBUS:SEND:<hex frame without CRC>, IBUS? */
 static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
 {
     if (strncmp(cmd, "IBUS:DEBUG:ON", 13) == 0) {
@@ -117,17 +107,15 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
             && mode != ORANGEBUS_UI_MODE_MID && mode != ORANGEBUS_UI_MODE_MIR) {
             spp_send_response(spp, "ERR\r\n");
         } else {
-            ibus_config_set(spp->config, "ui_mode", mode);
+            ibus_config_set(spp->config, IBUS_CFG_UI_MODE, mode);
             char resp[32];
-            snprintf(resp, sizeof(resp), "OK:UI=%s\r\n", ui_mode_str(mode));
+            snprintf(resp, sizeof(resp), "OK:UI=%s\r\n", ibus_config_ui_mode_name(mode));
             spp_send_response(spp, resp);
-            if (spp->uiModeChanged) {
-                *spp->uiModeChanged = true;
-            }
+            /* ibus_task notices the config revision change and switches UI. */
         }
     } else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:BLINK:", 26) == 0) {
         uint8_t val = (uint8_t)atoi(cmd + 26);
-        ibus_config_set(spp->config, "comfort_blink", val);
+        ibus_config_set(spp->config, IBUS_CFG_COMFORT_BLINK, val);
         char resp[32];
         snprintf(resp, sizeof(resp), "OK:BLINK:%d\r\n", val);
         spp_send_response(spp, resp);
@@ -136,19 +124,19 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
         }
     } else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:LOCKS:", 26) == 0) {
         uint8_t val = (uint8_t)atoi(cmd + 26);
-        ibus_config_set(spp->config, "comfort_locks", val);
+        ibus_config_set(spp->config, IBUS_CFG_COMFORT_LOCKS, val);
         char resp[32];
         snprintf(resp, sizeof(resp), "OK:LOCKS:%d\r\n", val);
         spp_send_response(spp, resp);
     } else if (strncmp(cmd, "IBUS:CONFIG:COMFORT:MIRRORS:", 28) == 0) {
         uint8_t val = (uint8_t)atoi(cmd + 28);
-        ibus_config_set(spp->config, "comfort_mirrors", val);
+        ibus_config_set(spp->config, IBUS_CFG_COMFORT_MIRRORS, val);
         char resp[32];
         snprintf(resp, sizeof(resp), "OK:MIRRORS:%d\r\n", val);
         spp_send_response(spp, resp);
     } else if (strncmp(cmd, "IBUS:CONFIG:AUTOPLAY:", 21) == 0) {
         uint8_t val = (uint8_t)atoi(cmd + 21);
-        ibus_config_set(spp->config, "autoplay", val);
+        ibus_config_set(spp->config, IBUS_CFG_AUTOPLAY, val);
         char resp[32];
         snprintf(resp, sizeof(resp), "OK:AUTOPLAY:%d\r\n", val);
         spp_send_response(spp, resp);
@@ -157,7 +145,7 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
         if (val > 3) {
             spp_send_response(spp, "ERR\r\n");
         } else {
-            ibus_config_set(spp->config, "meta_mode", val);
+            ibus_config_set(spp->config, IBUS_CFG_META_MODE, val);
             char resp[32];
             snprintf(resp, sizeof(resp), "OK:META:%d\r\n", val);
             spp_send_response(spp, resp);
@@ -185,19 +173,19 @@ static void handle_ibus_cmd(spp_server_t *spp, const char *cmd)
         snprintf(resp, sizeof(resp),
             "IBUS:DEBUG=%s,UI=%s,AUTOPLAY=%d,META=%d,BLINK=%d,LOCKS=%d,MIRRORS=%d\r\n",
             ibus_is_debug_mode(spp->ibus) ? "ON" : "OFF",
-            ui_mode_str(ibus_config_get(spp->config, "ui_mode")),
-            ibus_config_get(spp->config, "autoplay"),
-            ibus_config_get(spp->config, "meta_mode"),
-            ibus_config_get(spp->config, "comfort_blink"),
-            ibus_config_get(spp->config, "comfort_locks"),
-            ibus_config_get(spp->config, "comfort_mirrors"));
+            ibus_config_ui_mode_name(ibus_config_get(spp->config, IBUS_CFG_UI_MODE)),
+            ibus_config_get(spp->config, IBUS_CFG_AUTOPLAY),
+            ibus_config_get(spp->config, IBUS_CFG_META_MODE),
+            ibus_config_get(spp->config, IBUS_CFG_COMFORT_BLINK),
+            ibus_config_get(spp->config, IBUS_CFG_COMFORT_LOCKS),
+            ibus_config_get(spp->config, IBUS_CFG_COMFORT_MIRRORS));
         spp_send_response(spp, resp);
     } else {
         spp_send_response(spp, "ERR:UNKNOWN_IBUS\r\n");
     }
 }
 
-/* Punkt wejsciowy parsera komend - rozdziela linie EQ i IBUS */
+/* Dispatches one received command line by prefix. */
 void spp_process_line(spp_server_t *spp, const char *line)
 {
     if (strncmp(line, "EQ", 2) == 0) {

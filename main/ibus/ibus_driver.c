@@ -137,11 +137,11 @@ ibus_t *ibus_create(ibus_config_t *config)
 void ibus_destroy(ibus_t *ibus)
 {
     if (ibus) {
-        if (ibus->uart_installed) {
+        if (ibus->uartInstalled) {
             uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
         }
         ibus->uartQueue = NULL;
-        ibus->uart_installed = false;
+        ibus->uartInstalled = false;
         if (ibus->txMutex) vSemaphoreDelete(ibus->txMutex);
         free(ibus);
     }
@@ -165,7 +165,7 @@ esp_err_t ibus_init(ibus_t *ibus)
         IBUS_UART_QUEUE_LEN, &ibus->uartQueue, 0);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "UART driver install failed: %s. I-BUS unavailable, continuing...", esp_err_to_name(ret));
-        ibus->uart_installed = false;
+        ibus->uartInstalled = false;
         ibus->debugMode = false;
         return ESP_OK;
     }
@@ -174,7 +174,7 @@ esp_err_t ibus_init(ibus_t *ibus)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART param config failed: %s", esp_err_to_name(ret));
         uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
-        ibus->uart_installed = false;
+        ibus->uartInstalled = false;
         return ESP_OK;
     }
 
@@ -184,13 +184,13 @@ esp_err_t ibus_init(ibus_t *ibus)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "UART set pin failed: %s", esp_err_to_name(ret));
         uart_driver_delete(ORANGEBUS_IBUS_UART_NUM);
-        ibus->uart_installed = false;
+        ibus->uartInstalled = false;
         return ESP_OK;
     }
 
     gpio_pullup_en((gpio_num_t)ORANGEBUS_IBUS_RX);
 
-    ibus->uart_installed = true;
+    ibus->uartInstalled = true;
     ibus->debugMode = false;
     ESP_LOGI(TAG, "I-BUS UART initialized (9600 8E1, TX=%d, RX=%d, debug=%s)",
         ORANGEBUS_IBUS_TX, ORANGEBUS_IBUS_RX, ibus->debugMode ? "ON" : "OFF");
@@ -204,56 +204,54 @@ void ibus_register_callback(ibus_t *ibus, orangebus_ibus_event_t event, orangebu
     }
 }
 
-/* Drains pending UART events without blocking. Returns true when a data
- * event was seen. Overflow/buffer-full events reset the assembler so a noisy
- * bus cannot wedge the parser (CODE_REVIEW 3.3). */
+/* Handles one UART driver event. Returns true for "data received".
+ * Overflow / buffer-full drops everything buffered and restarts frame
+ * assembly, so a noisy bus cannot wedge the parser. */
+static bool ibus_handle_uart_event(ibus_t *ibus, const uart_event_t *event)
+{
+    switch (event->type) {
+    case UART_DATA:
+        return true;
+    case UART_FIFO_OVF:
+    case UART_BUFFER_FULL:
+        ibus->rxLen = 0;
+        uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
+        xQueueReset(ibus->uartQueue);
+        return false;
+    default:
+        /* Parity / framing errors: the CRC check rejects the damaged frame. */
+        return false;
+    }
+}
+
+/* Processes every queued UART event without blocking. Returns true when
+ * at least one of them was "data received". */
 static bool ibus_drain_events(ibus_t *ibus)
 {
     if (!ibus->uartQueue) return false;
     bool dataSeen = false;
-    uart_event_t evt;
-    while (xQueueReceive(ibus->uartQueue, &evt, 0) == pdTRUE) {
-        switch (evt.type) {
-        case UART_DATA:
-            dataSeen = true;
-            break;
-        case UART_FIFO_OVF:
-        case UART_BUFFER_FULL:
-            ibus->rxLen = 0;
-            uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
-            xQueueReset(ibus->uartQueue);
-            break;
-        case UART_PARITY_ERR:
-        case UART_FRAME_ERR:
-            break;
-        default:
-            break;
-        }
+    uart_event_t event;
+    while (xQueueReceive(ibus->uartQueue, &event, 0) == pdTRUE) {
+        dataSeen |= ibus_handle_uart_event(ibus, &event);
     }
     return dataSeen;
 }
 
-/* Blocks up to timeout_ms for RX activity. Lets ibus_task sleep instead of
- * spinning on a fixed 10 ms poll while keeping 100 ms tick granularity. */
+/* Sleeps up to timeout_ms waiting for RX activity, so ibus_task wakes as soon
+ * as a byte arrives instead of polling. Returns true if data is waiting. */
 bool ibus_wait_for_data(ibus_t *ibus, uint32_t timeout_ms)
 {
-    if (!ibus || !ibus->uart_installed || !ibus->uartQueue) {
+    if (!ibus || !ibus->uartInstalled || !ibus->uartQueue) {
         vTaskDelay(pdMS_TO_TICKS(timeout_ms));
         return false;
     }
     if (ibus_drain_events(ibus)) return true;
-    uart_event_t evt;
-    if (xQueueReceive(ibus->uartQueue, &evt, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+    uart_event_t event;
+    if (xQueueReceive(ibus->uartQueue, &event, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
         return false;
     }
-    bool dataSeen = (evt.type == UART_DATA);
-    if (evt.type == UART_FIFO_OVF || evt.type == UART_BUFFER_FULL) {
-        ibus->rxLen = 0;
-        uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
-        xQueueReset(ibus->uartQueue);
-    }
-    if (!dataSeen) dataSeen = ibus_drain_events(ibus);
-    return dataSeen;
+    bool dataSeen = ibus_handle_uart_event(ibus, &event);
+    return ibus_drain_events(ibus) || dataSeen;
 }
 
 /* Drops the first `count` bytes of the RX buffer and keeps the rest. */
@@ -319,7 +317,7 @@ void ibus_process(ibus_t *ibus)
 {
     if (!ibus) return;
     if (ibus->debugMode) return;
-    if (!ibus->uart_installed) return;
+    if (!ibus->uartInstalled) return;
     ibus_drain_events(ibus);
     uint8_t chunk[32];
     int readLen;
@@ -327,10 +325,10 @@ void ibus_process(ibus_t *ibus)
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
         /* Long silence since the last byte: whatever is buffered is a broken
          * frame, start over with this chunk. */
-        if (ibus->rxLen > 0 && (now - ibus->rxLastByte) > IBUS_RX_INTER_BYTE_TIMEOUT_MS) {
+        if (ibus->rxLen > 0 && (now - ibus->rxLastByteMs) > IBUS_RX_INTER_BYTE_TIMEOUT_MS) {
             ibus->rxLen = 0;
         }
-        ibus->rxLastByte = now;
+        ibus->rxLastByteMs = now;
         for (int i = 0; i < readLen; i++) {
             if (ibus->rxLen >= ORANGEBUS_IBUS_MAX_PKT) {
                 ibus_resync_shift(ibus);

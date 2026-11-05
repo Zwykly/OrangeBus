@@ -59,17 +59,17 @@ static void send_mirror_fold(comfort_t *c, bool fold)
 
 static bool is_blink_enabled(comfort_t *c)
 {
-    return ibus_config_get(c->config, "comfort_blink") != 0;
+    return ibus_config_get(c->config, IBUS_CFG_COMFORT_BLINK) != 0;
 }
 
 static bool is_locks_enabled(comfort_t *c)
 {
-    return ibus_config_get(c->config, "comfort_locks") != 0;
+    return ibus_config_get(c->config, IBUS_CFG_COMFORT_LOCKS) != 0;
 }
 
 static bool is_mirrors_enabled(comfort_t *c)
 {
-    return ibus_config_get(c->config, "comfort_mirrors") != 0;
+    return ibus_config_get(c->config, IBUS_CFG_COMFORT_MIRRORS) != 0;
 }
 
 comfort_t *comfort_create(ibus_t *ibus, ibus_config_t *config)

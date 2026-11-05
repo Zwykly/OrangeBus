@@ -7,7 +7,8 @@
 
 #define SPP_MAX_CMD 256
 
-/* Definicja struktury spp_server_t - wspoldzielona miedzy transportem a komendami */
+/* spp_server_t is shared by the transport (spp_server.c) and the command
+ * parser (spp_commands.c). */
 struct spp_server_t {
     bool connected;
     uint32_t handle;
@@ -18,17 +19,16 @@ struct spp_server_t {
     ibus_config_t *config;
     comfort_t *comfort;
     avrcp_controller_t *avrcp;
-    volatile bool *uiModeChanged;
     SemaphoreHandle_t dataReady;
     SemaphoreHandle_t bufMutex;
     char cmd_buf[SPP_MAX_CMD];
     int cmd_len;
 };
 
-/* Wysyla tekst odpowiedzi do klienta SPP - implementacja w spp_server.c */
+/* Sends a reply to the connected SPP client (spp_server.c). */
 void spp_send_response(spp_server_t *spp, const char *msg);
 
-/* Przetwarza pojedyncza linie komendy - implementacja w spp_commands.c */
+/* Executes one command line (spp_commands.c). */
 void spp_process_line(spp_server_t *spp, const char *line);
 
 #endif

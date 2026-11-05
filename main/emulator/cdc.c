@@ -43,7 +43,7 @@ static uint8_t status_for_function(uint8_t function)
  * a CDC command (there is no disc 7 to switch to). */
 static void cdc_send_status(cdc_t *cdc, uint8_t status, uint8_t function)
 {
-    bool navigationUi = ibus_config_get(cdc->config, "ui_mode") == ORANGEBUS_UI_MODE_BMBT;
+    bool navigationUi = ibus_config_get(cdc->config, IBUS_CFG_UI_MODE) == ORANGEBUS_UI_MODE_BMBT;
     uint8_t discsLoaded = navigationUi ? ORANGEBUS_IBUS_CDC_DISC_LOADED_1 : ORANGEBUS_IBUS_CDC_DISC_ALL;
     uint8_t discNumber = navigationUi ? 0x01 : ORANGEBUS_IBUS_CDC_DISC_NUMBER_VIRTUAL;
     ibus_send_cdc_status(cdc->ibus, status, function, discsLoaded, discNumber);
@@ -174,7 +174,7 @@ void cdc_tick(cdc_t *cdc)
     if ((now - cdc->lastPollMs) >= CDC_REANNOUNCE_TIMEOUT_MS) {
         cdc_announce(cdc);
     }
-    if (ibus_config_get(cdc->config, "ui_mode") == ORANGEBUS_UI_MODE_BMBT
+    if (ibus_config_get(cdc->config, IBUS_CFG_UI_MODE) == ORANGEBUS_UI_MODE_BMBT
         && (now - cdc->lastStatusMs) >= CDC_STATUS_REFRESH_MS) {
         cdc_send_status(cdc, status_for_function(cdc->function), cdc->function);
     }

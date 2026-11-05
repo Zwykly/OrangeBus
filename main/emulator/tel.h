@@ -1,6 +1,9 @@
 #ifndef TEL_H
 #define TEL_H
 
+/* Telephone (TEL, 0xC8) emulator: shows phone connection / call state on the
+ * car displays (status bits, LED, caller ID). */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

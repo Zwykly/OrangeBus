@@ -12,7 +12,7 @@
 #define TAG "HFP_CLIENT"
 
 struct hfp_client_t {
-    orangebus_hfp_state_t state;
+    volatile orangebus_hfp_state_t state;   /* written in BT task, read everywhere */
     esp_bd_addr_t peer_bda;
     bool sco_open;
     bool sco_is_msbc;
@@ -26,7 +26,7 @@ struct hfp_client_t {
 
 static hfp_client_t *s_instance = NULL;
 
-/* Callback przekazujacy przychodzace dane audio SCO do wyjscia audio */
+/* SCO receive callback: call audio from the phone -> speakers. */
 static void hfp_audio_recv_cb(const uint8_t *data, uint32_t len)
 {
     if (s_instance) {
@@ -34,7 +34,7 @@ static void hfp_audio_recv_cb(const uint8_t *data, uint32_t len)
     }
 }
 
-/* Callback pobierajacy dane audio SCO do wyslania ze zrodla audio */
+/* SCO send callback: microphone samples -> phone. */
 static uint32_t hfp_audio_send_cb(uint8_t *data, uint32_t len)
 {
     if (s_instance) {
@@ -44,7 +44,8 @@ static uint32_t hfp_audio_send_cb(uint8_t *data, uint32_t len)
     return len;
 }
 
-/* Glowny callback zdarzen klienta HFP (polaczenie, SCO, rozmowy, CLIP, BVRA) */
+/* HFP client event callback (BT task): connection, call audio (SCO), call
+ * state, caller ID and voice recognition. */
 static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param)
 {
     hfp_client_t *hf = s_instance;
@@ -163,7 +164,7 @@ static void hfp_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param
     }
 }
 
-/* Konstruktor klienta HFP - alokuje strukture i wiaze z audio, AVRCP i A2DP */
+/* Creates the HFP client; it pauses/resumes music around calls. */
 hfp_client_t *hfp_client_create(audio_output_t *audio, avrcp_controller_t *avrcp, a2dp_sink_t *a2dp)
 {
     hfp_client_t *hf = calloc(1, sizeof(hfp_client_t));
@@ -194,11 +195,6 @@ orangebus_hfp_state_t hfp_client_get_state(const hfp_client_t *hf)
         return ORANGEBUS_HFP_IDLE;
     }
     return hf->state;
-}
-
-orangebus_hfp_state_t *hfp_client_get_state_ptr(hfp_client_t *hf)
-{
-    return hf ? &hf->state : NULL;
 }
 
 const char *hfp_client_state_str(orangebus_hfp_state_t state)
@@ -237,8 +233,9 @@ void hfp_client_answer(hfp_client_t *hf)
 void hfp_client_reject(hfp_client_t *hf)
 {
     if (!hf) return;
+    /* AT+CHUP: rejects a ringing call and hangs up a dialing or active one. */
     if (hf->state == ORANGEBUS_HFP_INCOMING || hf->state == ORANGEBUS_HFP_ACTIVE ||
-        hf->state == ORANGEBUS_HFP_OUTGOING) {
+        hf->state == ORANGEBUS_HFP_OUTGOING || hf->state == ORANGEBUS_HFP_AUDIO_OPEN) {
         esp_hf_client_reject_call();
     }
 }
@@ -260,7 +257,7 @@ void hfp_client_toggle_voice_recognition(hfp_client_t *hf)
     }
 }
 
-/* Rejestruje callbacki HFP i inicjalizuje klienta - data callback tylko przy sukcesie init */
+/* Registers HFP callbacks; the audio data path only if init succeeded. */
 esp_err_t hfp_client_register_callbacks(hfp_client_t *hf)
 {
     if (!hf) return ESP_ERR_INVALID_ARG;

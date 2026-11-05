@@ -1,6 +1,11 @@
 #ifndef COMFORT_H
 #define COMFORT_H
 
+/* Comfort features driven by the key fob: indicator blink, extra lock pulse,
+ * mirror unfold. All default off; variant detection pings run only while the
+ * ignition is on. NOTE: the lock/blink/mirror frames are not yet verified
+ * against BlueBus (which uses vehicle-specific DIA job requests). */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"

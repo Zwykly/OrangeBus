@@ -39,7 +39,7 @@ struct eq_processor_t {
     uint32_t sample_rate;
 };
 
-/* Oblicza wspolczynniki filtru biquad typu peaking EQ (Audio EQ Cookbook) */
+/* Peaking-EQ biquad coefficients (RBJ "Audio EQ Cookbook"). */
 static void calc_biquad_peaking(eq_coeff_t *c, float freq, float q, float gain_db, uint32_t sr)
 {
     float w0 = 2.0f * (float)M_PI * freq / (float)sr;
@@ -81,7 +81,7 @@ static void reset_state(eq_state_t *s)
     s->y2 = 0.0f;
 }
 
-static float biquad_process(eq_coeff_t *c, eq_state_t *s, float x)
+static inline float biquad_process(eq_coeff_t *c, eq_state_t *s, float x)
 {
     float y = c->b0 * x + c->b1 * s->x1 + c->b2 * s->x2
               - c->a1 * s->y1 - c->a2 * s->y2;
@@ -177,6 +177,16 @@ void eq_processor_process_frame(eq_processor_t *eq, int16_t *left, int16_t *righ
 
     *left = (int16_t)(in_l * 32767.0f);
     *right = (int16_t)(in_r * 32767.0f);
+}
+
+/* Processes a block of interleaved stereo frames (L R L R ...) in place.
+ * Does nothing when the EQ is disabled or every band is at 0 dB. */
+void eq_processor_process_block(eq_processor_t *eq, int16_t *interleaved, uint32_t frameCount)
+{
+    if (!eq || !interleaved || !eq->enabled || eq->flat) return;
+    for (uint32_t i = 0; i < frameCount; i++) {
+        eq_processor_process_frame(eq, &interleaved[2 * i], &interleaved[2 * i + 1]);
+    }
 }
 
 void eq_processor_reset(eq_processor_t *eq)
