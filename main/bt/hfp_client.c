@@ -12,7 +12,7 @@
 #define TAG "HFP_CLIENT"
 
 struct hfp_client_t {
-    orangebus_hfp_state_t state;
+    volatile orangebus_hfp_state_t state;   /* written in BT task, read everywhere */
     esp_bd_addr_t peer_bda;
     bool sco_open;
     bool sco_is_msbc;
@@ -196,11 +196,6 @@ orangebus_hfp_state_t hfp_client_get_state(const hfp_client_t *hf)
     return hf->state;
 }
 
-orangebus_hfp_state_t *hfp_client_get_state_ptr(hfp_client_t *hf)
-{
-    return hf ? &hf->state : NULL;
-}
-
 const char *hfp_client_state_str(orangebus_hfp_state_t state)
 {
     switch (state) {
@@ -237,8 +232,9 @@ void hfp_client_answer(hfp_client_t *hf)
 void hfp_client_reject(hfp_client_t *hf)
 {
     if (!hf) return;
+    /* AT+CHUP: rejects a ringing call and hangs up a dialing or active one. */
     if (hf->state == ORANGEBUS_HFP_INCOMING || hf->state == ORANGEBUS_HFP_ACTIVE ||
-        hf->state == ORANGEBUS_HFP_OUTGOING) {
+        hf->state == ORANGEBUS_HFP_OUTGOING || hf->state == ORANGEBUS_HFP_AUDIO_OPEN) {
         esp_hf_client_reject_call();
     }
 }

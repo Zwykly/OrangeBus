@@ -43,9 +43,8 @@ typedef struct {
     audio_output_t *audio;
     orangebus_a2dp_state_t lastA2dpState;
     orangebus_hfp_state_t lastHfpState;
-    char lastTitle[81];
-    char lastArtist[81];
-    volatile bool uiModeChanged;
+    uint32_t lastMetadataVersion;   /* avrcp metadata version last shown */
+    uint32_t lastConfigRevision;    /* config revision last applied */
     bool mflVoiceHeld;   /* R/T button was held: suppress the release action */
 } ibus_ctx_t;
 
@@ -230,77 +229,53 @@ static void on_door_lock(uint8_t *data, uint8_t len)
 /* Aktywuje interfejs UI zgodnie z konfiguracja (ui_mode), deaktywuje pozostale */
 static void set_active_ui(ibus_ctx_t *ic)
 {
-    uint8_t uiMode = ibus_config_get(ic->config, "ui_mode");
+    uint8_t uiMode = ibus_config_get(ic->config, IBUS_CFG_UI_MODE);
     ui_cd53_set_active(ic->uiCd53, uiMode == ORANGEBUS_UI_MODE_CD53);
     ui_bmbt_set_active(ic->uiBmbt, uiMode == ORANGEBUS_UI_MODE_BMBT);
     ui_mid_set_active(ic->uiMid, uiMode == ORANGEBUS_UI_MODE_MID);
     ui_mir_set_active(ic->uiMir, uiMode == ORANGEBUS_UI_MODE_MIR);
 }
 
-/* Formatuje metadane utworu i wysyla do aktywnego interfejsu UI.
- * metaMode steruje formatem wyswietlania: 0=tytul-artysta, 1=artysta-tytul,
- * 2=tytul, 3=tytul|artysta */
+/* Builds the one-line track text for small displays. metaMode selects the
+ * layout: 0 = "title - artist", 1 = "artist - title", 2 = title only,
+ * 3 = "title|artist". Falls back to "Streaming"/"Bluetooth" with no title. */
+static void format_track_text(char *out, size_t outSize, const orangebus_metadata_t *meta,
+                              uint8_t metaMode, bool playing)
+{
+    bool hasTitle = meta->title[0] != '\0';
+    bool hasArtist = meta->artist[0] != '\0';
+    if (!hasTitle) {
+        snprintf(out, outSize, "%s", playing ? "Streaming" : "Bluetooth");
+    } else if (!hasArtist || metaMode == 2) {
+        snprintf(out, outSize, "%.24s", meta->title);
+    } else if (metaMode == 1) {
+        snprintf(out, outSize, "%.8s - %.8s", meta->artist, meta->title);
+    } else if (metaMode == 3) {
+        snprintf(out, outSize, "%.12s|%.11s", meta->title, meta->artist);
+    } else {
+        snprintf(out, outSize, "%.10s - %.10s", meta->title, meta->artist);
+    }
+}
+
+/* Sends track metadata to whichever display UI is configured. */
 static void send_metadata_to_ui(ibus_ctx_t *ic, const orangebus_metadata_t *meta, bool playing)
 {
     if (!meta) return;
-    uint8_t uiMode = ibus_config_get(ic->config, "ui_mode");
-    uint8_t metaMode = ibus_config_get(ic->config, "meta_mode");
-
-    char metaText[ORANGEBUS_IBUS_MID_MAX_CHARS + 1];
-    switch (metaMode) {
-    case 1:
-        if (meta->artist[0] && meta->title[0]) {
-            snprintf(metaText, sizeof(metaText), "%.8s - %.8s", meta->artist, meta->title);
-        } else if (meta->title[0]) {
-            snprintf(metaText, sizeof(metaText), "%.24s", meta->title);
-        } else {
-            strncpy(metaText, playing ? "Streaming" : "Bluetooth", sizeof(metaText) - 1);
-            metaText[sizeof(metaText) - 1] = '\0';
-        }
-        break;
-    case 2:
-        if (meta->title[0]) {
-            snprintf(metaText, sizeof(metaText), "%.24s", meta->title);
-        } else {
-            strncpy(metaText, playing ? "Streaming" : "Bluetooth", sizeof(metaText) - 1);
-            metaText[sizeof(metaText) - 1] = '\0';
-        }
-        break;
-    case 3:
-        if (meta->title[0] && meta->artist[0]) {
-            snprintf(metaText, sizeof(metaText), "%.12s|%.11s", meta->title, meta->artist);
-        } else if (meta->title[0]) {
-            snprintf(metaText, sizeof(metaText), "%.24s", meta->title);
-        } else {
-            strncpy(metaText, playing ? "Streaming" : "Bluetooth", sizeof(metaText) - 1);
-            metaText[sizeof(metaText) - 1] = '\0';
-        }
-        break;
-    default:
-        if (meta->title[0] && meta->artist[0]) {
-            snprintf(metaText, sizeof(metaText), "%.10s - %.10s", meta->title, meta->artist);
-        } else if (meta->title[0]) {
-            snprintf(metaText, sizeof(metaText), "%.24s", meta->title);
-        } else {
-            strncpy(metaText, playing ? "Streaming" : "Bluetooth", sizeof(metaText) - 1);
-            metaText[sizeof(metaText) - 1] = '\0';
-        }
-        break;
+    uint8_t uiMode = ibus_config_get(ic->config, IBUS_CFG_UI_MODE);
+    if (uiMode == ORANGEBUS_UI_MODE_BMBT) {
+        /* The navigation screen has room for separate lines. */
+        ui_bmbt_on_metadata(ic->uiBmbt, meta->title, meta->artist, meta->album);
+        return;
     }
 
+    char trackText[ORANGEBUS_IBUS_MID_MAX_CHARS + 1];
+    format_track_text(trackText, sizeof(trackText), meta,
+        ibus_config_get(ic->config, IBUS_CFG_META_MODE), playing);
     switch (uiMode) {
-    case ORANGEBUS_UI_MODE_CD53:
-        ui_cd53_show_title(ic->uiCd53, metaText);
-        break;
-    case ORANGEBUS_UI_MODE_MIR:
-        ui_mir_show_title(ic->uiMir, metaText);
-        break;
-    case ORANGEBUS_UI_MODE_MID:
-        ui_mid_show_title(ic->uiMid, metaText);
-        break;
-    case ORANGEBUS_UI_MODE_BMBT:
-        ui_bmbt_on_metadata(ic->uiBmbt, meta->title, meta->artist, meta->album);
-        break;
+    case ORANGEBUS_UI_MODE_CD53: ui_cd53_show_title(ic->uiCd53, trackText); break;
+    case ORANGEBUS_UI_MODE_MIR:  ui_mir_show_title(ic->uiMir, trackText); break;
+    case ORANGEBUS_UI_MODE_MID:  ui_mid_show_title(ic->uiMid, trackText); break;
+    default: break;
     }
 }
 
@@ -329,42 +304,43 @@ static void ibus_task(void *arg)
             ui_bmbt_tick(ic->uiBmbt);
             comfort_tick(ic->comfort);
 
-            if (ic->uiModeChanged) {
-                ic->uiModeChanged = false;
+            /* A setting changed (SPP or CLI): re-apply the UI mode. */
+            uint32_t configRevision = ibus_config_get_revision(ic->config);
+            if (configRevision != ic->lastConfigRevision) {
+                ic->lastConfigRevision = configRevision;
                 set_active_ui(ic);
             }
 
+            /* --- A2DP state -> displays, autoplay --- */
             orangebus_a2dp_state_t a2dpState = a2dp_sink_get_state(ic->a2dp);
             if (a2dpState != ic->lastA2dpState) {
-                orangebus_a2dp_state_t prev = ic->lastA2dpState;
+                orangebus_a2dp_state_t previousState = ic->lastA2dpState;
                 ic->lastA2dpState = a2dpState;
                 if (a2dpState == ORANGEBUS_A2DP_PLAYING) {
-                    orangebus_metadata_t metaCopy;
-                    avrcp_controller_copy_metadata(ic->avrcp, &metaCopy);
-                    send_metadata_to_ui(ic, &metaCopy, true);
+                    ic->lastMetadataVersion--;   /* force a metadata refresh below */
                     ui_bmbt_on_playback(ic->uiBmbt, true);
                 } else if (a2dpState == ORANGEBUS_A2DP_PAUSED || a2dpState == ORANGEBUS_A2DP_CONNECTED) {
                     ui_bmbt_on_playback(ic->uiBmbt, false);
                 }
-                if (a2dpState >= ORANGEBUS_A2DP_CONNECTED
-                    && prev < ORANGEBUS_A2DP_CONNECTED
-                    && ibus_config_get(ic->config, "autoplay") != 0
+                bool justConnected = a2dpState >= ORANGEBUS_A2DP_CONNECTED
+                    && previousState < ORANGEBUS_A2DP_CONNECTED;
+                if (justConnected && ibus_config_get(ic->config, IBUS_CFG_AUTOPLAY)
                     && !cdc_is_playing(ic->cdc)) {
                     cdc_set_playing(ic->cdc, true);
                     avrcp_controller_send_passthrough(ic->avrcp, ESP_AVRC_PT_CMD_PLAY);
                 }
             }
 
-            orangebus_metadata_t metaCopy;
-            avrcp_controller_copy_metadata(ic->avrcp, &metaCopy);
-            if (strcmp(metaCopy.title, ic->lastTitle) != 0 || strcmp(metaCopy.artist, ic->lastArtist) != 0) {
-                strncpy(ic->lastTitle, metaCopy.title, sizeof(ic->lastTitle) - 1);
-                ic->lastTitle[sizeof(ic->lastTitle) - 1] = '\0';
-                strncpy(ic->lastArtist, metaCopy.artist, sizeof(ic->lastArtist) - 1);
-                ic->lastArtist[sizeof(ic->lastArtist) - 1] = '\0';
-                send_metadata_to_ui(ic, &metaCopy, a2dpState == ORANGEBUS_A2DP_PLAYING);
+            /* --- New track metadata -> display (only copied when it changed) --- */
+            uint32_t metadataVersion = avrcp_controller_get_metadata_version(ic->avrcp);
+            if (metadataVersion != ic->lastMetadataVersion) {
+                ic->lastMetadataVersion = metadataVersion;
+                orangebus_metadata_t meta;
+                avrcp_controller_copy_metadata(ic->avrcp, &meta);
+                send_metadata_to_ui(ic, &meta, a2dpState == ORANGEBUS_A2DP_PLAYING);
             }
 
+            /* --- HFP state -> telephone emulator --- */
             orangebus_hfp_state_t hfpState = hfp_client_get_state(ic->hfp);
             if (hfpState != ic->lastHfpState) {
                 ic->lastHfpState = hfpState;
@@ -486,6 +462,7 @@ void app_run(void)
     ic->a2dp = a2dp;
     ic->hfp = hfp;
     ic->audio = audio;
+    ic->lastConfigRevision = ibus_config_get_revision(ibusConfig);
 
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_FIRST_FRAME, on_first_frame);
     ibus_register_callback(ibus, ORANGEBUS_IBUS_EVT_CDC_REQUEST, on_cdc_request);
@@ -500,7 +477,7 @@ void app_run(void)
 
     set_active_ui(ic);
 
-    spp_server_t *spp = spp_server_create(eq, ibus, cdc, tel, ibusConfig, comfort, avrcp, &ic->uiModeChanged);
+    spp_server_t *spp = spp_server_create(eq, ibus, cdc, tel, ibusConfig, comfort, avrcp);
     ret = spp_server_init(spp);
     ESP_LOGI(TAG, "SPP server init: %s", esp_err_to_name(ret));
 

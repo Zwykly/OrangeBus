@@ -20,6 +20,23 @@
 #define AUDIO_TASK_STACK 4096
 #define AUDIO_TASK_PRIO 10
 #define AUDIO_I2S_WRITE_TIMEOUT_MS 50
+/* SCO frames are at most 240 mono samples (mSBC: 120, CVSD: 60 per 7.5 ms). */
+#define SCO_MAX_MONO_SAMPLES 240
+
+/* Volume 0..100 % as a Q15 fixed-point gain (32768 = unity). Integer scaling
+ * is cheaper than a float multiply + conversion per sample. */
+static int32_t volume_to_q15(uint8_t volumePercent)
+{
+    return ((int32_t)volumePercent * 32768) / 100;
+}
+
+/* Scales samples in place by a Q15 gain (gain <= unity, so no clipping). */
+static void apply_gain_q15(int16_t *samples, uint32_t count, int32_t gainQ15)
+{
+    for (uint32_t i = 0; i < count; i++) {
+        samples[i] = (int16_t)((samples[i] * gainQ15) >> 15);
+    }
+}
 
 struct audio_output_t {
 i2s_chan_handle_t tx_handle;
@@ -37,7 +54,7 @@ bool is_a2dp_mode;
 bool initialized;
 uint8_t volume;
 bool muted;
-int16_t sco_stereo_buf[480];
+int16_t sco_stereo_buf[SCO_MAX_MONO_SAMPLES * 2];
 eq_processor_t *eq;
 };
 
@@ -222,17 +239,10 @@ static void audio_out_task(void *arg)
         int16_t *samples = ao->a2dp_scratch;
         uint32_t sample_count = frame_len / 2;
 
-        if (eq && eq_processor_is_enabled(eq) && !eq_processor_is_flat(eq)) {
-            for (uint32_t i = 0; i + 1 < sample_count; i += 2) {
-                eq_processor_process_frame(eq, &samples[i], &samples[i + 1]);
-            }
-        }
-
+        /* EQ (skipped inside when disabled or flat), then volume. */
+        eq_processor_process_block(eq, samples, sample_count / 2);
         if (volume < 100) {
-            float scale = volume / 100.0f;
-            for (uint32_t i = 0; i < sample_count; i++) {
-                samples[i] = (int16_t)(samples[i] * scale);
-            }
+            apply_gain_q15(samples, sample_count, volume_to_q15(volume));
         }
 
         /* Re-take only around the bounded I2S write so reconfiguration in
@@ -395,18 +405,21 @@ void audio_output_hfp_recv_cb(audio_output_t *ao, const uint8_t *data, uint32_t 
         return;
     }
 
+    /* Mono call audio -> both I2S channels, with volume applied. */
     uint32_t mono_samples = len / 2;
-    if (mono_samples > 240) mono_samples = 240;
+    if (mono_samples > SCO_MAX_MONO_SAMPLES) mono_samples = SCO_MAX_MONO_SAMPLES;
     uint32_t stereo_len = mono_samples * 4;
 
     const int16_t *mono = (const int16_t *)data;
-    float scale = ao->volume / 100.0f;
+    int32_t gainQ15 = volume_to_q15(ao->volume);
     for (uint32_t i = 0; i < mono_samples; i++) {
-        int16_t scaled = (int16_t)(mono[i] * scale);
+        int16_t scaled = (int16_t)((mono[i] * gainQ15) >> 15);
         ao->sco_stereo_buf[i * 2]     = scaled;
         ao->sco_stereo_buf[i * 2 + 1] = scaled;
     }
-    i2s_channel_write(ao->tx_handle, ao->sco_stereo_buf, stereo_len, NULL, portMAX_DELAY);
+    /* Runs in the Bluetooth task: never block it indefinitely. */
+    i2s_channel_write(ao->tx_handle, ao->sco_stereo_buf, stereo_len, NULL,
+                      pdMS_TO_TICKS(AUDIO_I2S_WRITE_TIMEOUT_MS));
 
     if (ao->mutex) xSemaphoreGive(ao->mutex);
 }
@@ -425,13 +438,10 @@ uint32_t audio_output_hfp_send_cb(audio_output_t *ao, uint8_t *data, uint32_t le
         return len;
     }
 
+    if (mono_samples > SCO_MAX_MONO_SAMPLES) mono_samples = SCO_MAX_MONO_SAMPLES;
     size_t stereo_bytes = mono_samples * 4;
-    if (stereo_bytes > 960) {
-        stereo_bytes = 960;
-        mono_samples = 240;
-    }
 
-    int16_t stereo_buf[240 * 2];
+    int16_t stereo_buf[SCO_MAX_MONO_SAMPLES * 2];
     size_t bytes_read = 0;
     esp_err_t ret = i2s_channel_read(ao->rx_handle, stereo_buf, stereo_bytes, &bytes_read, pdMS_TO_TICKS(20));
     if (ret != ESP_OK || bytes_read < stereo_bytes) {

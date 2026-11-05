@@ -204,37 +204,41 @@ void ibus_register_callback(ibus_t *ibus, orangebus_ibus_event_t event, orangebu
     }
 }
 
-/* Drains pending UART events without blocking. Returns true when a data
- * event was seen. Overflow/buffer-full events reset the assembler so a noisy
- * bus cannot wedge the parser (CODE_REVIEW 3.3). */
+/* Handles one UART driver event. Returns true for "data received".
+ * Overflow / buffer-full drops everything buffered and restarts frame
+ * assembly, so a noisy bus cannot wedge the parser. */
+static bool ibus_handle_uart_event(ibus_t *ibus, const uart_event_t *event)
+{
+    switch (event->type) {
+    case UART_DATA:
+        return true;
+    case UART_FIFO_OVF:
+    case UART_BUFFER_FULL:
+        ibus->rxLen = 0;
+        uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
+        xQueueReset(ibus->uartQueue);
+        return false;
+    default:
+        /* Parity / framing errors: the CRC check rejects the damaged frame. */
+        return false;
+    }
+}
+
+/* Processes every queued UART event without blocking. Returns true when
+ * at least one of them was "data received". */
 static bool ibus_drain_events(ibus_t *ibus)
 {
     if (!ibus->uartQueue) return false;
     bool dataSeen = false;
-    uart_event_t evt;
-    while (xQueueReceive(ibus->uartQueue, &evt, 0) == pdTRUE) {
-        switch (evt.type) {
-        case UART_DATA:
-            dataSeen = true;
-            break;
-        case UART_FIFO_OVF:
-        case UART_BUFFER_FULL:
-            ibus->rxLen = 0;
-            uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
-            xQueueReset(ibus->uartQueue);
-            break;
-        case UART_PARITY_ERR:
-        case UART_FRAME_ERR:
-            break;
-        default:
-            break;
-        }
+    uart_event_t event;
+    while (xQueueReceive(ibus->uartQueue, &event, 0) == pdTRUE) {
+        dataSeen |= ibus_handle_uart_event(ibus, &event);
     }
     return dataSeen;
 }
 
-/* Blocks up to timeout_ms for RX activity. Lets ibus_task sleep instead of
- * spinning on a fixed 10 ms poll while keeping 100 ms tick granularity. */
+/* Sleeps up to timeout_ms waiting for RX activity, so ibus_task wakes as soon
+ * as a byte arrives instead of polling. Returns true if data is waiting. */
 bool ibus_wait_for_data(ibus_t *ibus, uint32_t timeout_ms)
 {
     if (!ibus || !ibus->uart_installed || !ibus->uartQueue) {
@@ -242,18 +246,12 @@ bool ibus_wait_for_data(ibus_t *ibus, uint32_t timeout_ms)
         return false;
     }
     if (ibus_drain_events(ibus)) return true;
-    uart_event_t evt;
-    if (xQueueReceive(ibus->uartQueue, &evt, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+    uart_event_t event;
+    if (xQueueReceive(ibus->uartQueue, &event, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
         return false;
     }
-    bool dataSeen = (evt.type == UART_DATA);
-    if (evt.type == UART_FIFO_OVF || evt.type == UART_BUFFER_FULL) {
-        ibus->rxLen = 0;
-        uart_flush_input(ORANGEBUS_IBUS_UART_NUM);
-        xQueueReset(ibus->uartQueue);
-    }
-    if (!dataSeen) dataSeen = ibus_drain_events(ibus);
-    return dataSeen;
+    bool dataSeen = ibus_handle_uart_event(ibus, &event);
+    return ibus_drain_events(ibus) || dataSeen;
 }
 
 /* Drops the first `count` bytes of the RX buffer and keeps the rest. */

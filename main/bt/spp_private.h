@@ -18,7 +18,6 @@ struct spp_server_t {
     ibus_config_t *config;
     comfort_t *comfort;
     avrcp_controller_t *avrcp;
-    volatile bool *uiModeChanged;
     SemaphoreHandle_t dataReady;
     SemaphoreHandle_t bufMutex;
     char cmd_buf[SPP_MAX_CMD];

@@ -3,14 +3,13 @@
 #include "audio_output.h"
 #include "esp_log.h"
 #include "esp_a2dp_api.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 
 #define TAG "A2DP_SINK"
 
 struct a2dp_sink_t {
-    SemaphoreHandle_t lock;
-    orangebus_a2dp_state_t state;
+    /* Written by the BT task, read by ibus_task/CLI. An aligned 32-bit enum is
+     * read and written atomically on the ESP32, so no lock is needed. */
+    volatile orangebus_a2dp_state_t state;
     audio_output_t *audio;
 };
 
@@ -62,18 +61,11 @@ a2dp_sink_t *a2dp_sink_create(audio_output_t *audio)
     a2dp_sink_t *sink = calloc(1, sizeof(a2dp_sink_t));
     if (!sink) return NULL;
     sink->audio = audio;
-    sink->lock = xSemaphoreCreateMutex();
-    if (!sink->lock) {
-        free(sink);
-        return NULL;
-    }
     return sink;
 }
 
 void a2dp_sink_destroy(a2dp_sink_t *sink)
 {
-    if (!sink) return;
-    if (sink->lock) vSemaphoreDelete(sink->lock);
     free(sink);
 }
 
@@ -91,25 +83,12 @@ orangebus_a2dp_state_t a2dp_sink_get_state(const a2dp_sink_t *sink)
         ESP_LOGW(TAG, "get_state called with NULL handle");
         return ORANGEBUS_A2DP_IDLE;
     }
-    a2dp_sink_t *mut = (a2dp_sink_t *)sink;
-    orangebus_a2dp_state_t st = ORANGEBUS_A2DP_IDLE;
-    if (mut->lock) xSemaphoreTake(mut->lock, portMAX_DELAY);
-    st = sink->state;
-    if (mut->lock) xSemaphoreGive(mut->lock);
-    return st;
+    return sink->state;
 }
 
 void a2dp_sink_set_state(a2dp_sink_t *sink, orangebus_a2dp_state_t state)
 {
-    if (!sink) return;
-    if (sink->lock) xSemaphoreTake(sink->lock, portMAX_DELAY);
-    sink->state = state;
-    if (sink->lock) xSemaphoreGive(sink->lock);
-}
-
-orangebus_a2dp_state_t *a2dp_sink_get_state_ptr(a2dp_sink_t *sink)
-{
-    return sink ? &sink->state : NULL;
+    if (sink) sink->state = state;
 }
 
 const char *a2dp_sink_state_str(orangebus_a2dp_state_t state)
@@ -121,15 +100,6 @@ const char *a2dp_sink_state_str(orangebus_a2dp_state_t state)
     case ORANGEBUS_A2DP_CONNECTING: return "CONNECTING";
     default:                      return "IDLE";
     }
-}
-
-void a2dp_sink_set_hfp_state_ref(a2dp_sink_t *sink, orangebus_hfp_state_t *ref)
-{
-    /* Deprecated no-op: the raw HFP pointer was never read and bypassed the
-     * owning module's invariants (CODE_REVIEW 1.6). Kept for ABI compat;
-     * read HFP state via hfp_client_get_state() instead. */
-    (void)sink;
-    (void)ref;
 }
 
 /* Rejestruje callbacki A2DP w stosie Bluetooth i inicjalizuje sink */
