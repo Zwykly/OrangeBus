@@ -15,6 +15,15 @@ typedef struct {
 
 typedef struct eq_processor_t eq_processor_t;
 
+/* Threading model:
+ *  - Control API (set_band, set_enabled, load/save preset, getters) may be
+ *    called from any task (SPP, CLI). It only updates a target parameter set
+ *    under a spinlock.
+ *  - eq_processor_process() and eq_processor_reset() must only be called from
+ *    the audio task. It picks up new targets at block boundaries and glides
+ *    the live filters towards them, so parameter changes never produce
+ *    clicks or level spikes. */
+
 eq_processor_t *eq_processor_create(void);
 void eq_processor_destroy(eq_processor_t *eq);
 
@@ -27,7 +36,8 @@ void eq_processor_set_enabled(eq_processor_t *eq, bool enabled);
 bool eq_processor_is_enabled(const eq_processor_t *eq);
 bool eq_processor_is_flat(const eq_processor_t *eq);
 
-void eq_processor_process_frame(eq_processor_t *eq, int16_t *left, int16_t *right);
+/* Process interleaved stereo int16 samples in place (audio task only). */
+void eq_processor_process(eq_processor_t *eq, int16_t *samples, uint32_t frames);
 void eq_processor_reset(eq_processor_t *eq);
 
 esp_err_t eq_processor_save_preset(const eq_processor_t *eq, const char *name);
