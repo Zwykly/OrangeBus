@@ -7,6 +7,7 @@
 #include "bt_manager.h"
 #include "cli.h"
 #include "eq_processor.h"
+#include "eq_state.h"
 #include "spp_server.h"
 #include "ibus.h"
 #include "ibus_config.h"
@@ -416,6 +417,9 @@ void app_run(void)
 
     eq_processor_t *eq = eq_processor_create();
     eq_processor_init(eq, 44100);
+    /* Bring back the bands, on/off switch and preset name from the last drive. */
+    eq_state_t *eqState = eq_state_create(eq);
+    eq_state_restore_and_start(eqState);
     audio_output_set_eq(audio, eq);
 
     avrcp_controller_t *avrcp = avrcp_controller_create();
@@ -501,6 +505,7 @@ void app_run(void)
     set_active_ui(ic);
 
     spp_server_t *spp = spp_server_create(eq, ibus, cdc, tel, ibusConfig, comfort, avrcp, &ic->uiModeChanged);
+    spp_server_set_eq_state(spp, eqState);
     ret = spp_server_init(spp);
     ESP_LOGI(TAG, "SPP server init: %s", esp_err_to_name(ret));
 

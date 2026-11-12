@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "esp_avrc_api.h"
 #include "eq_processor.h"
+#include "eq_state.h"
 #include "ibus.h"
 #include "cdc.h"
 #include "tel.h"
@@ -26,45 +27,86 @@ static const char *ui_mode_str(uint8_t mode)
     }
 }
 
-/* Obsluga komend EQ: ON/OFF, SAVE/LOAD preset, ustawienie pasa, zapytanie */
+/* EQ commands:
+ *   EQ:ON / EQ:OFF                  switch the processor
+ *   EQ:<band>:<freq>:<q>:<gain>     set one band (marks the state "custom")
+ *   EQ:SAVE:<name> / EQ:LOAD:<name> named presets in NVS
+ *   EQ:DEL:<name>                   delete a named preset
+ *   EQ:NAME:<name>                  label the live bands (app applied a preset)
+ *   EQ?                             band list "0:60:1.0:+0.0;1:..."
+ *   EQ:STATE?                       "EQ:STATE=ON,PRESET=<name>"
+ *   EQ:LIST?                        "EQ:LIST=<name>,<name>"
+ * The live state (bands, on/off, preset name) is persisted by eq_state. */
 static void handle_eq_cmd(spp_server_t *spp, const char *cmd)
 {
-    if (strncmp(cmd, "EQ:ON", 5) == 0) {
+    if (strcmp(cmd, "EQ:ON") == 0) {
         eq_processor_set_enabled(spp->eq, true);
         spp_send_response(spp, "OK\r\n");
         ESP_LOGI(TAG, "EQ enabled via SPP");
-    } else if (strncmp(cmd, "EQ:OFF", 6) == 0) {
+    } else if (strcmp(cmd, "EQ:OFF") == 0) {
         eq_processor_set_enabled(spp->eq, false);
         spp_send_response(spp, "OK\r\n");
         ESP_LOGI(TAG, "EQ disabled via SPP");
     } else if (strncmp(cmd, "EQ:SAVE:", 8) == 0) {
         const char *name = cmd + 8;
-        esp_err_t ret = eq_processor_save_preset(spp->eq, name);
+        esp_err_t ret = eq_state_name_valid(name)
+            ? eq_processor_save_preset(spp->eq, name) : ESP_ERR_INVALID_ARG;
+        if (ret == ESP_OK) eq_state_set_name(spp->eqState, name);
         spp_send_response(spp, (ret == ESP_OK) ? "OK\r\n" : "ERR\r\n");
     } else if (strncmp(cmd, "EQ:LOAD:", 8) == 0) {
         const char *name = cmd + 8;
-        esp_err_t ret = eq_processor_load_preset(spp->eq, name);
+        esp_err_t ret = eq_state_name_valid(name)
+            ? eq_processor_load_preset(spp->eq, name) : ESP_ERR_INVALID_ARG;
+        if (ret == ESP_OK) eq_state_set_name(spp->eqState, name);
         spp_send_response(spp, (ret == ESP_OK) ? "OK\r\n" : "ERR\r\n");
-    } else if (strncmp(cmd, "EQ:", 3) == 0 && cmd[3] != '?') {
-        int idx;
-        float freq, q, gain;
-        if (sscanf(cmd, "EQ:%d:%f:%f:%f", &idx, &freq, &q, &gain) == 4) {
-            eq_processor_set_band(spp->eq, idx, freq, q, gain);
+    } else if (strncmp(cmd, "EQ:DEL:", 7) == 0) {
+        esp_err_t ret = eq_state_delete_preset(cmd + 7);
+        spp_send_response(spp, (ret == ESP_OK) ? "OK\r\n" : "ERR\r\n");
+    } else if (strncmp(cmd, "EQ:NAME:", 8) == 0) {
+        const char *name = cmd + 8;
+        if (name[0] == '\0' || eq_state_name_valid(name)) {
+            eq_state_set_name(spp->eqState, name);
             spp_send_response(spp, "OK\r\n");
-            ESP_LOGI(TAG, "Band %d: %.0fHz Q%.1f %+.1fdB", idx, freq, q, gain);
         } else {
             spp_send_response(spp, "ERR\r\n");
         }
-    } else if (strncmp(cmd, "EQ?", 3) == 0) {
+    } else if (strcmp(cmd, "EQ:STATE?") == 0) {
+        char name[EQ_STATE_NAME_MAX + 1];
+        eq_state_get_name(spp->eqState, name, sizeof(name));
+        char resp[64];
+        snprintf(resp, sizeof(resp), "EQ:STATE=%s,PRESET=%s\r\n",
+                 eq_processor_is_enabled(spp->eq) ? "ON" : "OFF", name);
+        spp_send_response(spp, resp);
+    } else if (strcmp(cmd, "EQ:LIST?") == 0) {
+        char resp[SPP_MAX_CMD];
+        int pos = snprintf(resp, sizeof(resp), "EQ:LIST=");
+        eq_state_list_presets(resp + pos, sizeof(resp) - pos - 2);
+        strcat(resp, "\r\n");
+        spp_send_response(spp, resp);
+    } else if (strncmp(cmd, "EQ:", 3) == 0 && cmd[3] != '?') {
+        int idx;
+        float freq, q, gain;
+        if (sscanf(cmd, "EQ:%d:%f:%f:%f", &idx, &freq, &q, &gain) == 4
+            && idx >= 0 && idx < EQ_BANDS) {
+            eq_processor_set_band(spp->eq, idx, freq, q, gain);
+            /* Hand edit: no preset describes the bands any more. The app sends
+             * EQ:NAME after the band lines when it applies a built-in preset. */
+            eq_state_set_name(spp->eqState, "");
+            spp_send_response(spp, "OK\r\n");
+            ESP_LOGD(TAG, "Band %d: %.0fHz Q%.1f %+.1fdB", idx, freq, q, gain);
+        } else {
+            spp_send_response(spp, "ERR\r\n");
+        }
+    } else if (strcmp(cmd, "EQ?") == 0) {
         char resp[256];
         int pos = 0;
         for (int i = 0; i < EQ_BANDS; i++) {
             const eq_band_params_t *b = eq_processor_get_band(spp->eq, i);
             if (!b) continue;
-            pos += snprintf(resp + pos, sizeof(resp) - pos, "%s%d:%.0f:%.1f:%+.1f",
+            pos += snprintf(resp + pos, sizeof(resp) - pos, "%s%d:%.0f:%.2f:%+.1f",
                             (i > 0) ? ";" : "", i, b->freq, b->q, b->gain_db);
         }
-        pos += snprintf(resp + pos, sizeof(resp) - pos, "\r\n");
+        snprintf(resp + pos, sizeof(resp) - pos, "\r\n");
         spp_send_response(spp, resp);
     } else {
         spp_send_response(spp, "ERR:UNKNOWN\r\n");

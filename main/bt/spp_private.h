@@ -2,6 +2,7 @@
 #define SPP_PRIVATE_H
 
 #include "spp_server.h"
+#include "eq_state.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -12,6 +13,7 @@ struct spp_server_t {
     bool connected;
     uint32_t handle;
     eq_processor_t *eq;
+    eq_state_t *eqState;            /* set via spp_server_set_eq_state() */
     ibus_t *ibus;
     cdc_t *cdc;
     tel_t *tel;

@@ -14,6 +14,7 @@ SRCS
     "bt/spp_commands.c"
     "audio/audio_output.c"
     "audio/eq_processor.c"
+    "audio/eq_state.c"
     "ui/ui_bmbt.c"
     "ui/ui_cd53.c"
     "ui/ui_mid.c"
@@ -22,5 +23,5 @@ SRCS
     "emulator/tel.c"
     "comfort/comfort.c"
     "cli/cli.c"
-PRIV_REQUIRES bt nvs_flash driver esp_driver_gpio esp_driver_i2s esp_driver_uart esp_ringbuf freertos
+PRIV_REQUIRES bt nvs_flash esp_timer driver esp_driver_gpio esp_driver_i2s esp_driver_uart esp_ringbuf freertos
 INCLUDE_DIRS "." "app" "board" "common" "ibus" "bt" "audio" "ui" "emulator" "comfort" "cli")
