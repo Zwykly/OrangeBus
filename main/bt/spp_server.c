@@ -151,6 +151,11 @@ void spp_server_destroy(spp_server_t *spp)
     free(spp);
 }
 
+void spp_server_set_eq_state(spp_server_t *spp, eq_state_t *eqState)
+{
+    if (spp) spp->eqState = eqState;
+}
+
 esp_err_t spp_server_init(spp_server_t *spp)
 {
     if (!spp) return ESP_ERR_INVALID_ARG;
